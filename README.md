@@ -40,3 +40,4 @@ streamlit run pool_keeper_app.py
 - **Défenseurs (D)** : But = 2.0 pts, Passe = 1.0 pt
 - **Gardiens (G)** : Victoire = 1.0 pt, Arrêt = 0.1 pt, But accordé = -1.0 pt (plancher de 0 pt par match)
 - **Alignement** : 12 Attaquants + 6 Défenseurs + 2 Gardiens (Protégés : 12 joueurs)
+
