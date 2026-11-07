@@ -216,45 +216,43 @@ def detect_mobile_mode() -> bool:
     js_code = f"""
     <script>
     (function() {{
+        let lastWidth = null;
         function checkViewport() {{
             try {{
-                const targetWin = window.parent || window;
-                const width = targetWin.innerWidth || screen.width;
+                const targetWin = window.parent;
+                const href = targetWin.location.href;
+                const width = targetWin.innerWidth;
+                if (lastWidth === width) return;
+                lastWidth = width;
+
                 const isMobileScreen = width <= 768;
                 const currentPyMobile = {py_mobile_str};
 
                 if (isMobileScreen !== currentPyMobile) {{
-                    const url = new URL(targetWin.location.href);
-                    url.searchParams.set("mobile", isMobileScreen ? "1" : "0");
-                    targetWin.location.replace(url.href);
+                    const url = new URL(href);
+                    const targetVal = isMobileScreen ? "1" : "0";
+                    if (url.searchParams.get("mobile") !== targetVal) {{
+                        url.searchParams.set("mobile", targetVal);
+                        targetWin.location.replace(url.href);
+                    }}
                 }}
             }} catch(e) {{
-                try {{
-                    const width = window.innerWidth || screen.width;
-                    const isMobileScreen = width <= 768;
-                    const currentPyMobile = {py_mobile_str};
-                    if (isMobileScreen !== currentPyMobile) {{
-                        const url = new URL(window.location.href);
-                        url.searchParams.set("mobile", isMobileScreen ? "1" : "0");
-                        window.location.replace(url.href);
-                    }}
-                }} catch(err) {{}}
+                // Sécurisé en contexte cross-origin : ne jamais recharger l'iframe !
             }}
         }}
 
-        // Exécution immédiate au chargement
+        // Exécution au chargement
         checkViewport();
 
         // Réaction fluide au redimensionnement ou rotation d'appareil
         let timer = null;
         try {{
-            const targetWin = window.parent || window;
-            targetWin.addEventListener("resize", function() {{
+            window.parent.addEventListener("resize", function() {{
                 clearTimeout(timer);
-                timer = setTimeout(checkViewport, 250);
+                timer = setTimeout(checkViewport, 300);
             }});
-            targetWin.addEventListener("orientationchange", function() {{
-                setTimeout(checkViewport, 150);
+            window.parent.addEventListener("orientationchange", function() {{
+                setTimeout(checkViewport, 200);
             }});
         }} catch(e) {{}}
     }})();
@@ -1037,23 +1035,25 @@ def ensure_club_loaded(players: pd.DataFrame) -> None:
                 indices_from_url = []
 
         if indices_from_url:
-            st.session_state["my_club_ids"] = indices_from_url
+            st.session_state["my_club_ids"] = sorted(indices_from_url)
             st.session_state["my_club_last_saved"] = "Restauré depuis l'URL"
         else:
             saved_ids, updated_at = load_club_from_disk(players)
-            st.session_state["my_club_ids"] = saved_ids
+            st.session_state["my_club_ids"] = sorted(saved_ids)
             if updated_at:
                 st.session_state["my_club_last_saved"] = updated_at
 
 
 def sync_club_state(players: pd.DataFrame, new_ids: list[int]) -> None:
     """Met à jour l'état de session, enregistre sur disque et synchronise les query params d'URL."""
-    valid_ids = [i for i in new_ids if i in players.index]
+    valid_ids = sorted([i for i in new_ids if i in players.index])
     st.session_state["my_club_ids"] = valid_ids
     save_club_to_disk(players, valid_ids)
     st.session_state["my_club_last_saved"] = dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     if valid_ids and "pid" in players.columns:
-        st.query_params["club"] = ",".join(str(int(players.loc[i, "pid"])) for i in valid_ids)
+        pids_str = ",".join(str(int(players.loc[i, "pid"])) for i in valid_ids)
+        if st.query_params.get("club") != pids_str:
+            st.query_params["club"] = pids_str
     elif "club" in st.query_params:
         del st.query_params["club"]
 
@@ -1149,25 +1149,32 @@ def render_tab_club_waivers(players: pd.DataFrame, is_mobile: bool = False) -> N
                 key="club_file_uploader",
             )
             if uploaded_file is not None:
-                try:
-                    upload_data = json.load(uploaded_file)
-                    up_pids = set(upload_data.get("pids", []))
-                    up_indices: list[int] = []
-                    if up_pids and "pid" in players.columns:
-                        up_indices = players[players["pid"].isin(up_pids)].index.tolist()
-                    if len(up_indices) < len(upload_data.get("names", [])):
-                        missing = [n for n in upload_data.get("names", []) if n not in players.loc[up_indices, "name"].values]
-                        if missing:
-                            extra_ids, _ = match_names(players, missing)
-                            for eid in extra_ids:
-                                if eid not in up_indices:
-                                    up_indices.append(eid)
-                    if up_indices:
-                        sync_club_state(players, up_indices)
-                        st.success(f"{len(up_indices)} joueurs restaurés avec succès !")
-                        st.rerun()
-                except Exception as e:
-                    st.error(f"Erreur lors de la lecture du fichier : {e}")
+                file_sig = f"{uploaded_file.name}_{uploaded_file.size}"
+                if st.session_state.get("_last_club_upload_sig") != file_sig:
+                    try:
+                        upload_data = json.load(uploaded_file)
+                        up_pids = set(upload_data.get("pids", []))
+                        up_indices: list[int] = []
+                        if up_pids and "pid" in players.columns:
+                            up_indices = players[players["pid"].isin(up_pids)].index.tolist()
+                        if len(up_indices) < len(upload_data.get("names", [])):
+                            missing = [n for n in upload_data.get("names", []) if n not in players.loc[up_indices, "name"].values]
+                            if missing:
+                                extra_ids, _ = match_names(players, missing)
+                                for eid in extra_ids:
+                                    if eid not in up_indices:
+                                        up_indices.append(eid)
+                        if up_indices:
+                            st.session_state["_last_club_upload_sig"] = file_sig
+                            sync_club_state(players, up_indices)
+                            st.success(f"✅ {len(up_indices)} joueurs restaurés avec succès !")
+                            st.rerun()
+                    except Exception as e:
+                        st.error(f"Erreur lors de la lecture du fichier : {e}")
+                else:
+                    st.caption(f"📁 Fichier chargé : **{uploaded_file.name}** ({len(st.session_state.get('my_club_ids', []))} joueurs restaurés)")
+            else:
+                st.session_state["_last_club_upload_sig"] = None
 
     all_indices = players.index.tolist()
     labels = {
@@ -1183,6 +1190,7 @@ def render_tab_club_waivers(players: pd.DataFrame, is_mobile: bool = False) -> N
     )
 
     if mode == "🔍 Sélection interactive (Recherche & clic)":
+        current_club_set = set(st.session_state.get("my_club_ids", []))
         selected = st.multiselect(
             "Joueurs de mon équipe :",
             options=all_indices,
@@ -1190,7 +1198,7 @@ def render_tab_club_waivers(players: pd.DataFrame, is_mobile: bool = False) -> N
             format_func=lambda i: labels.get(i, str(i)),
             placeholder="Tapez le nom d'un joueur, sa position ou son équipe...",
         )
-        if selected != st.session_state["my_club_ids"]:
+        if set(selected) != current_club_set:
             sync_club_state(players, selected)
             st.rerun()
     else:
