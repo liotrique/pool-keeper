@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Centre de Repêchage - Pool LNH</title>
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;800&family=Outfit:wght@400;700&display=swap" rel="stylesheet">
+    <!-- PapaParse pour lire le CSV -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- HEADER -->
+        <header class="glass-header">
+            <div class="logo">
+                <span class="neon-text">HOCKEY</span> DRAFT CENTER
+            </div>
+            <div class="stats-overview" id="roster-status">
+                <div class="stat-pill"><span class="label">ATT</span> <span class="val" id="count-att">0/12</span></div>
+                <div class="stat-pill"><span class="label">DEF</span> <span class="val" id="count-def">0/6</span></div>
+                <div class="stat-pill"><span class="label">GAR</span> <span class="val" id="count-gar">0/2</span></div>
+            </div>
+        </header>
+
+        <main class="dashboard">
+            <!-- COLONNE GAUCHE: Liste des joueurs -->
+            <section class="players-section glass-panel">
+                <div class="section-header">
+                    <h2>Joueurs Disponibles</h2>
+                    <div class="filters">
+                        <input type="text" id="search-input" placeholder="Rechercher un joueur..." class="neon-input">
+                        <select id="pos-filter" class="neon-select">
+                            <option value="ALL">Toutes positions</option>
+                            <option value="C">Centre (C)</option>
+                            <option value="L">Ailier Gauche (L)</option>
+                            <option value="R">Ailier Droit (R)</option>
+                            <option value="D">Défenseur (D)</option>
+                            <option value="G">Gardien (G)</option>
+                        </select>
+                        <select id="status-filter" class="neon-select">
+                            <option value="AVAILABLE">Disponibles uniquement</option>
+                            <option value="ALL">Tous les joueurs</option>
+                            <option value="MINE">Mon équipe</option>
+                            <option value="OTHER">Pris par les autres</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="table-container">
+                    <table id="players-table">
+                        <thead>
+                            <tr>
+                                <th data-sort="Nom">Nom</th>
+                                <th data-sort="Position">Pos</th>
+                                <th data-sort="Âge">Âge</th>
+                                <th data-sort="Points Pool 2024-25" class="hide-mobile">Pts 24-25</th>
+                                <th data-sort="Points Pool 2025-26" class="hide-mobile">Pts 25-26</th>
+                                <th data-sort="Prédiction Brute 2026-27">Préd. 26-27</th>
+                                <th data-sort="Score Valeur Dynastie" class="sort-active sort-desc">Valeur Dynastie</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="players-body">
+                            <!-- Rempli par JS -->
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+
+            <!-- COLONNE DROITE: Mon Équipe -->
+            <section class="my-team-section glass-panel">
+                <div class="section-header">
+                    <h2>Mon Alignement</h2>
+                    <button id="reset-draft" class="btn-danger">Réinitialiser</button>
+                </div>
+                
+                <div class="roster-group">
+                    <h3>Attaquants (C, L, R)</h3>
+                    <ul id="roster-attaquants" class="roster-list"></ul>
+                </div>
+                
+                <div class="roster-group">
+                    <h3>Défenseurs (D)</h3>
+                    <ul id="roster-defenseurs" class="roster-list"></ul>
+                </div>
+
+                <div class="roster-group">
+                    <h3>Gardiens (G)</h3>
+                    <ul id="roster-gardiens" class="roster-list"></ul>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

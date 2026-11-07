@@ -1,0 +1,28 @@
+# Environnement virtuel Python
+.venv/
+venv/
+env/
+
+# Cache API LNH et calculs
+.nhl_cache/
+**/__pycache__/
+*.py[cod]
+*$py.class
+
+# Fichiers système et OS
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Fichiers de données locales
+my_club.json
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
