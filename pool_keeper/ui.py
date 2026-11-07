@@ -1337,7 +1337,7 @@ def _render_manual_trade_simulator(players: pd.DataFrame, is_mobile: bool = Fals
             if st.button("📥 Charger Mon club", use_container_width=True):
                 if "my_club_ids" in st.session_state and st.session_state["my_club_ids"]:
                     st.session_state["trade_a"] = list(st.session_state["my_club_ids"])
-                    st.session_state["select_trade_a"] = list(st.session_state["my_club_ids"])
+                    st.session_state["trade_version"] = st.session_state.get("trade_version", 0) + 1
                     st.rerun()
                 else:
                     st.info("Aucun joueur défini dans 'Mon club'.")
@@ -1346,14 +1346,12 @@ def _render_manual_trade_simulator(players: pd.DataFrame, is_mobile: bool = Fals
                 temp = list(st.session_state["trade_a"])
                 st.session_state["trade_a"] = list(st.session_state["trade_b"])
                 st.session_state["trade_b"] = temp
-                st.session_state["select_trade_a"] = list(st.session_state["trade_a"])
-                st.session_state["select_trade_b"] = list(st.session_state["trade_b"])
+                st.session_state["trade_version"] = st.session_state.get("trade_version", 0) + 1
                 st.rerun()
         if st.button("🗑️ Vider la transaction", use_container_width=True):
             st.session_state["trade_a"] = []
             st.session_state["trade_b"] = []
-            st.session_state["select_trade_a"] = []
-            st.session_state["select_trade_b"] = []
+            st.session_state["trade_version"] = st.session_state.get("trade_version", 0) + 1
             st.rerun()
     else:
         b_col1, b_col2, b_col3, _ = st.columns([2.5, 2, 2, 3.5])
@@ -1361,7 +1359,7 @@ def _render_manual_trade_simulator(players: pd.DataFrame, is_mobile: bool = Fals
             if st.button("📥 Charger Mon club dans Équipe A", use_container_width=True):
                 if "my_club_ids" in st.session_state and st.session_state["my_club_ids"]:
                     st.session_state["trade_a"] = list(st.session_state["my_club_ids"])
-                    st.session_state["select_trade_a"] = list(st.session_state["my_club_ids"])
+                    st.session_state["trade_version"] = st.session_state.get("trade_version", 0) + 1
                     st.rerun()
                 else:
                     st.info("Aucun joueur défini dans 'Mon club' pour l'instant.")
@@ -1370,15 +1368,13 @@ def _render_manual_trade_simulator(players: pd.DataFrame, is_mobile: bool = Fals
             temp = list(st.session_state["trade_a"])
             st.session_state["trade_a"] = list(st.session_state["trade_b"])
             st.session_state["trade_b"] = temp
-            st.session_state["select_trade_a"] = list(st.session_state["trade_a"])
-            st.session_state["select_trade_b"] = list(st.session_state["trade_b"])
+            st.session_state["trade_version"] = st.session_state.get("trade_version", 0) + 1
             st.rerun()
 
         if b_col3.button("🗑️ Vider la transaction", use_container_width=True):
             st.session_state["trade_a"] = []
             st.session_state["trade_b"] = []
-            st.session_state["select_trade_a"] = []
-            st.session_state["select_trade_b"] = []
+            st.session_state["trade_version"] = st.session_state.get("trade_version", 0) + 1
             st.rerun()
 
     all_indices = players.index.tolist()
@@ -1398,6 +1394,7 @@ def _render_manual_trade_simulator(players: pd.DataFrame, is_mobile: bool = Fals
     else:
         col_a, col_b = st.columns(2)
 
+    ver = st.session_state.get("trade_version", 0)
     with col_a:
         st.markdown("#### 📤 Équipe A (Ce que vous cédez)")
         selected_a = st.multiselect(
@@ -1405,7 +1402,7 @@ def _render_manual_trade_simulator(players: pd.DataFrame, is_mobile: bool = Fals
             options=all_indices,
             default=[i for i in st.session_state["trade_a"] if i in all_indices],
             format_func=lambda i: labels.get(i, str(i)),
-            key="select_trade_a",
+            key=f"trade_a_multiselect_{ver}",
             placeholder="Rechercher des joueurs à donner...",
         )
         st.session_state["trade_a"] = selected_a
@@ -1417,7 +1414,7 @@ def _render_manual_trade_simulator(players: pd.DataFrame, is_mobile: bool = Fals
             options=all_indices,
             default=[i for i in st.session_state["trade_b"] if i in all_indices],
             format_func=lambda i: labels.get(i, str(i)),
-            key="select_trade_b",
+            key=f"trade_b_multiselect_{ver}",
             placeholder="Rechercher des joueurs à recevoir...",
         )
         st.session_state["trade_b"] = selected_b
@@ -1764,9 +1761,8 @@ def render_tab_trade_finder(players: pd.DataFrame, is_mobile: bool = False) -> N
         if st.button("🚀 Charger dans le simulateur", use_container_width=True, type="primary"):
             chosen_give_ids = offers.loc[offer_idx, "_give_ids"]
             st.session_state["trade_a"] = list(chosen_give_ids)
-            st.session_state["select_trade_a"] = list(chosen_give_ids)
             st.session_state["trade_b"] = list(target_ids)
-            st.session_state["select_trade_b"] = list(target_ids)
+            st.session_state["trade_version"] = st.session_state.get("trade_version", 0) + 1
             st.success("✅ Offre chargée ! Basculez sur l'onglet '🔄 Simulateur manuel' pour voir tous les graphiques et le diagnostic complet.")
             st.rerun()
 
