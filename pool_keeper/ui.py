@@ -945,7 +945,7 @@ def render_tab_scarcity(players: pd.DataFrame, model: dict[str, Any], is_mobile:
         v = np.sort(players.loc[players["grp"] == g, "pts0"].values)[::-1][: lim[g]]
         curves[nm] = pd.Series(v, index=np.arange(1, len(v) + 1))
     st.subheader("Chute de production par rang (pts pool projetés)")
-    st.line_chart(pd.DataFrame(curves), height=280 if is_mobile else None)
+    st.line_chart(pd.DataFrame(curves), height=280 if is_mobile else 380)
 
     st.subheader("Meilleure valeur (VORP) par position")
     pos_items = [("F", "Attaquants"), ("D", "Défenseurs"), ("G", "Gardiens")]
