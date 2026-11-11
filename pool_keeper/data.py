@@ -30,6 +30,7 @@ from pool_keeper.config import (
     RULES,
     STATS,
     WEB,
+    get_league_translation,
 )
 from pool_keeper.utils import season_shift
 
@@ -402,7 +403,7 @@ def attach_goalie_points(gl: pd.DataFrame, season: int, cur: int, use_logs: bool
 
 def fetch_pre_nhl_player(pid: int, pos: str = "F") -> dict[str, Any]:
     """Récupère et traduit les statistiques pré-LNH (junior, AHL, Europe) d'un joueur."""
-    key = f"pre_nhl_v5_{pid}"
+    key = f"pre_nhl_v6_{pid}_{pos}"
     c = cache_get(key, ttl=86400 * 14)
     if c is not None:
         return c
@@ -433,7 +434,7 @@ def fetch_pre_nhl_player(pid: int, pos: str = "F") -> dict[str, Any]:
         a = s.get("assists") or 0
         pts = (2.0 * g + a) if pos == "D" else (g + a)
         rate = pts / max(gp, 1)
-        trans_factor, evid_factor = LEAGUE_TRANSLATION[league]
+        trans_factor, evid_factor = get_league_translation(league, rate=rate, pos=pos)
         rate_nhl = rate * trans_factor
 
         # Normalisation selon le calendrier réel de la ligue :
