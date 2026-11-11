@@ -996,21 +996,60 @@ def render_tab_player(players: pd.DataFrame, model: dict[str, Any], cur: int, is
                 if pd.notna(net_pen_val):
                     st.metric("Pénalités nettes / 60m", f"{net_pen_val:+.2f}")
 
-            # Alertes analytiques intelligentes
+            # ── Synthèse d'interprétation personnalisée ──
+            diag_parts = []
+            if pd.notna(corsi_val):
+                c_pct = corsi_val * 100
+                rel_str = f" ({corsi_rel_val * 100:+.1f}% vs coéquipiers)" if pd.notna(corsi_rel_val) else ""
+                if c_pct >= 55.0:
+                    diag_parts.append(f"🔥 **Possession d'élite :** Contrôle territorial écrasant avec un Corsi de **{c_pct:.1f}%**{rel_str}. L'équipe dicte le jeu lorsqu'il est sur la glace.")
+                elif c_pct >= 51.0:
+                    diag_parts.append(f"✅ **Contrôle positif du jeu :** Corsi solide de **{c_pct:.1f}%**{rel_str}. Son équipe génère plus de tentatives de lancers qu'elle n'en concède.")
+                elif c_pct <= 46.0:
+                    diag_parts.append(f"⚠️ **Pression défensive subie :** Corsi de **{c_pct:.1f}%**{rel_str}. Son trio passe beaucoup de temps replié en zone défensive.")
+
+            if pd.notna(oz_val):
+                oz_pct = oz_val * 100
+                if oz_pct >= 58.0:
+                    diag_parts.append(f"🎯 **Déploiement offensif protégé :** **{oz_pct:.1f}%** de ses mises en jeu ont lieu en zone offensive. L'entraîneur maximise ses chances de marquer.")
+                elif oz_pct <= 45.0:
+                    diag_parts.append(f"🛡️ **Missions défensives lourdes :** Seulement **{oz_pct:.1f}%** de départs en zone offensive. Utilisé contre les meilleurs éléments adverses, ce qui bride sa production.")
+
+            if pd.notna(shots_val):
+                if shots_val >= 3.5:
+                    diag_parts.append(f"⚡ **Volume de tirs de vedette :** **{shots_val:.1f} tirs/match**. Un volume aussi élevé garantit pratiquement un rythme de 30 à 40+ buts sur une saison complète.")
+                elif shots_val <= 1.8 and r["grp"] == "F":
+                    diag_parts.append(f"🏒 **Profil de passeur pur :** Seulement **{shots_val:.1f} tirs/match**. Sa production dépendra presque exclusivement de la finition de ses ailiers/coéquipiers.")
+
             if pd.notna(pdo_val):
-                if pdo_val < 0.980 and (pd.notna(corsi_val) and corsi_val >= 0.50):
-                    st.info(
-                        f"🎯 **Candidat d'élite au rebond positif (Buy-Low) :** "
-                        f"Ce joueur domine la possession (**{corsi_val * 100:.1f}% Corsi**) "
-                        f"mais subit un taux de chance anormalement bas (**PDO de {pdo_val:.3f}**). "
-                        f"Une forte régression positive vers la moyenne est attendue."
-                    )
-                elif pdo_val > 1.030:
-                    st.warning(
-                        f"⚠️ **Vigilance – Production dopée par la chance (Sell-High potentiel) :** "
-                        f"Son **PDO de {pdo_val:.3f}** est nettement au-dessus de la normale. "
-                        f"Un ralentissement du rythme de production est statistiquement probable."
-                    )
+                if pdo_val < 0.980:
+                    diag_parts.append(f"📈 **Sous-régime de chance (PDO de {pdo_val:.3f}) :** Contexte de malchance inhabituel (les tirs ne rentrent pas ou les gardiens flanchent). **Fort potentiel de rebond offensif (Buy-Low).**")
+                elif pdo_val > 1.025:
+                    diag_parts.append(f"📉 **Surrégime temporaire (PDO de {pdo_val:.3f}) :** Tout tourne en sa faveur actuellement. Une régression vers la moyenne statistique est à anticiper (Sell-High potentiel).")
+                else:
+                    diag_parts.append(f"⚖️ **Taux de chance équilibré (PDO de {pdo_val:.3f}) :** Production durable et parfaitement en phase avec son niveau de jeu réel.")
+
+            if diag_parts:
+                st.markdown("##### 🔍 Diagnostic analytique pour votre pool")
+                for p in diag_parts:
+                    st.markdown(f"- {p}")
+
+            # ── Guide d'interprétation détaillé (dépliable) ──
+            with st.expander("📖 Guide d'interprétation des métriques avancées (repères & seuils LNH)", expanded=False):
+                st.markdown(
+                    """
+| Métrique | Signification | Seuils de référence LNH | Comment l'utiliser dans votre pool |
+|---|---|---|---|
+| **Corsi CF%** | % des tentatives de tir de son équipe quand il est sur la glace (5c5). | • **>55%** : Élite (domine le jeu)<br>• **50-55%** : Positif<br>• **<48%** : Vulnérable | Meilleur indicateur du temps de possession. Un joueur à 56% de Corsi crée du jeu en continu. |
+| **Corsi Relatif** | Écart de Corsi du joueur par rapport à ses coéquipiers lorsqu'il n'est pas sur la glace. | • **>+3.0%** : Moteur de son club<br>• **<-2.0%** : Trainé par son trio | Détermine si c'est le joueur qui tire son équipe vers le haut ou s'il profite de ses coéquipiers. |
+| **OZ Start %** | % de mises en jeu à forces égales débutées en zone offensive. | • **>58%** : Protégé/Offensif<br>• **48-54%** : Neutre<br>• **<45%** : Rôle défensif | Plus ce chiffre est haut, plus le coach lui donne des opportunités immédiates de marquer. |
+| **Tirs / match** | Nombre de tirs au but officiels par rencontre. | • **>3.5** : Élite (35+ buts)<br>• **2.5-3.4** : Bon tireur<br>• **<2.0** : Faible volume | La métrique la plus stable. Un joueur qui tire 4 fois par match finira toujours par marquer. |
+| **PDO (Chance)** | Somme du % de tir d'équipe et % d'arrêts d'équipe sur la glace (base 1.000). | • **>1.025** : Chanceux (*Sell-High*)<br>• **0.990-1.015** : Neutre<br>• **<0.980** : Malchanceux (*Buy-Low*) | Détecteur de régression à la moyenne. Si le PDO est bas, les points vont augmenter bientôt. |
+| **Sh% 5c5** | % de lancers individuels convertis en buts à forces égales. | • **Attaquants** : moy. ~9-10%<br>• **Défenseurs** : moy. ~4-5% | >16% = surchauffe (sauf tireurs d'exception). <6% = période de disette temporaire. |
+| **On-Ice Sh%** | % de tir de tous les joueurs de l'équipe sur la glace à 5c5. | • **Moyenne LNH** : ~8.5-9.5%<br>• **>12%** : Finition collective anormale | Révèle si les passes du joueur ont été artificiellement gonflées par une finition miraculeuse. |
+| **Takeaways/60** | Rondelles soutirées activement à l'adversaire par 60 minutes. | • **>2.0** : Voleur de rondelle d'élite | Capture le jeu de transition et la création de revirements payants en contre-attaque. |
+                    """
+                )
 
 
 def render_tab_scarcity(players: pd.DataFrame, model: dict[str, Any], is_mobile: bool = False) -> None:
