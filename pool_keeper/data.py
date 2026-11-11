@@ -332,7 +332,7 @@ def fetch_season(season: int, cur: int) -> dict[str, pd.DataFrame]:
     key = f"season_{season}"
     final = season < cur
     c = cache_get(key, ttl=None if final else 3600)
-    if c is not None:
+    if c is not None and isinstance(c, dict) and "sk" in c and "corsi_pct" in c["sk"].columns:
         return c
     try:
         obj = {"sk": fetch_skaters(season), "gl": fetch_goalies(season)}
