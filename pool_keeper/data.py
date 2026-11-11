@@ -146,6 +146,122 @@ def _bios(kind: str, season: int) -> pd.DataFrame:
     })
 
 
+def fetch_advanced_stats(season: int) -> pd.DataFrame:
+    """Récupère et fusionne les statistiques avancées des patineurs pour une saison donnée."""
+    frames: list[pd.DataFrame] = []
+
+    # --- scoringRates ---
+    try:
+        sr = fetch_report("skater", "scoringRates", season)
+        if not sr.empty:
+            sr = sr.rename(columns={"playerId": "pid"})
+            col_map = {
+                "goals5v5": "g5v5",
+                "assists5v5": "a5v5",
+                "points5v5": "pts5v5",
+                "goalsPer605v5": "g_per60_5v5",
+                "assistsPer605v5": "a_per60_5v5_tmp",
+                "pointsPer605v5": "ipp5v5_per60",
+                "primaryAssists5v5": "a1_5v5_tmp",
+                "primaryAssistsPer605v5": "a1_per60_5v5",
+                "secondaryAssists5v5": "a2_5v5_tmp",
+                "secondaryAssistsPer605v5": "a2_per60_5v5",
+                "shootingPct5v5": "sh_pct_5v5",
+                "offensiveZoneStartPct5v5": "oz_start_pct",
+                "satPct": "corsi_pct",
+                "satRelative5v5": "corsi_rel",
+                "onIceShootingPct5v5": "on_ice_sh_pct",
+                "netMinorPenaltiesPer60": "net_pen_per60",
+                "timeOnIcePerGame5v5": "toi_5v5",
+            }
+            keep = ["pid"] + [c for c in col_map if c in sr.columns]
+            sr = sr[keep].rename(columns=col_map).drop_duplicates("pid")
+            if "toi_5v5" in sr.columns:
+                sr["toi_5v5"] = pd.to_numeric(sr["toi_5v5"], errors="coerce") / 60.0
+            frames.append(sr)
+    except Exception:
+        pass
+
+    # --- realtime ---
+    try:
+        rt = fetch_report("skater", "realtime", season)
+        if not rt.empty:
+            rt = rt.rename(columns={"playerId": "pid"})
+            col_map = {
+                "hits": "hits",
+                "hitsPer60": "hits_per60",
+                "blockedShots": "blocked_shots",
+                "blockedShotsPer60": "blocks_per60",
+                "giveaways": "giveaways",
+                "giveawaysPer60": "give_per60",
+                "takeaways": "takeaways",
+                "takeawaysPer60": "take_per60",
+                "missedShots": "missed_shots",
+                "totalShotAttempts": "total_shot_att",
+                "firstGoals": "first_goals",
+            }
+            keep = ["pid"] + [c for c in col_map if c in rt.columns]
+            rt = rt[keep].rename(columns=col_map).drop_duplicates("pid")
+            frames.append(rt)
+    except Exception:
+        pass
+
+    # --- percentages ---
+    try:
+        pct = fetch_report("skater", "percentages", season)
+        if not pct.empty:
+            pct = pct.rename(columns={"playerId": "pid"})
+            col_map = {
+                "satPercentage": "corsi_pct",
+                "satRelative": "corsi_rel",
+                "shootingPct5v5": "sh_pct_5v5",
+                "skaterShootingPlusSavePct5v5": "pdo",
+                "zoneStartPct5v5": "oz_start_pct",
+                "usatPercentage": "fenwick_pct",
+                "usatRelative": "fenwick_rel",
+            }
+            keep = ["pid"] + [c for c in col_map if c in pct.columns]
+            pct = pct[keep].rename(columns=col_map).drop_duplicates("pid")
+            frames.append(pct)
+    except Exception:
+        pass
+
+    # --- scoringpergame ---
+    try:
+        spg = fetch_report("skater", "scoringpergame", season)
+        if not spg.empty:
+            spg = spg.rename(columns={"playerId": "pid"})
+            col_map = {
+                "shotsPerGame": "shots_per_gp",
+                "primaryAssistsPerGame": "a1_per_gp",
+                "secondaryAssistsPerGame": "a2_per_gp",
+            }
+            keep = ["pid"] + [c for c in col_map if c in spg.columns]
+            spg = spg[keep].rename(columns=col_map).drop_duplicates("pid")
+            frames.append(spg)
+    except Exception:
+        pass
+
+    if not frames:
+        return pd.DataFrame(columns=["pid", "season"])
+
+    merged = frames[0]
+    for f in frames[1:]:
+        # suffix duplicates; keep left value
+        merged = merged.merge(f, on="pid", how="left", suffixes=("", "_dup"))
+        for c in list(merged.columns):
+            if c.endswith("_dup"):
+                orig = c[: -len("_dup")]
+                if orig in merged.columns:
+                    merged[orig] = merged[orig].fillna(merged[c])
+                else:
+                    merged = merged.rename(columns={c: orig})
+                merged = merged.drop(columns=[c], errors="ignore")
+
+    merged["season"] = season
+    return merged
+
+
 def fetch_skaters(season: int) -> pd.DataFrame:
     """Récupère et fusionne les statistiques des patineurs pour une saison donnée."""
     s = fetch_report("skater", "summary", season)
@@ -179,7 +295,14 @@ def fetch_skaters(season: int) -> pd.DataFrame:
     df["pp_toi"] = _to_minutes(df["pp_toi"])
     df["team"] = df["cur_team"].fillna(df["team"])
     df["season"] = season
-    return df[["season", "pid", "name", "pos", "team", "gp", "g", "a", "toi", "pp_toi", "birth"]]
+    adv = fetch_advanced_stats(season)
+    if not adv.empty:
+        df = df.merge(adv, on="pid", how="left", suffixes=("", "_adv"))
+        # resolve season duplicate from adv merge
+        for c in list(df.columns):
+            if c.endswith("_adv"):
+                df = df.drop(columns=[c], errors="ignore")
+    return df
 
 
 def fetch_goalies(season: int) -> pd.DataFrame:

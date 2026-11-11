@@ -614,6 +614,14 @@ def render_tab_ranking(players: pd.DataFrame, cur: int, is_mobile: bool = False)
                 "Valeur Keeper": [round(float(v), 1) for v in f["kv"]],
                 "VORP": [round(float(v), 1) for v in f["vorp0"]],
             }
+            if "corsi_pct" in f and f["corsi_pct"].notna().any():
+                metrics_dict["Corsi CF%"] = [round(float(v) * 100, 1) if pd.notna(v) else 0.0 for v in f["corsi_pct"]]
+            if "pdo" in f and f["pdo"].notna().any():
+                metrics_dict["PDO"] = [round(float(v), 3) if pd.notna(v) else 1.0 for v in f["pdo"]]
+            if "oz_start_pct" in f and f["oz_start_pct"].notna().any():
+                metrics_dict["Zone Offensive %"] = [round(float(v) * 100, 1) if pd.notna(v) else 50.0 for v in f["oz_start_pct"]]
+            if "shots_per_gp" in f and f["shots_per_gp"].notna().any():
+                metrics_dict["Tirs / match"] = [round(float(v), 1) if pd.notna(v) else 0.0 for v in f["shots_per_gp"]]
 
             col_opt1, col_opt2 = st.columns([2.5, 1.5])
             with col_opt1:
@@ -929,6 +937,80 @@ def render_tab_player(players: pd.DataFrame, model: dict[str, Any], cur: int, is
                 )
             else:
                 st.write(f"Opportunité **{r['c_opp']:.0f}/100** · Aucun coéquipier de même poste devant lui.")
+
+    # ── Données avancées & Métriques NHL Edge ──
+    if r["grp"] != "G":
+        has_adv = any(pd.notna(r.get(c)) for c in ["corsi_pct", "pdo", "shots_per_gp", "oz_start_pct"])
+        if has_adv:
+            st.subheader("⚡ Métriques avancées & Profil NHL Edge")
+            col_adv_list = st.columns(4) if not is_mobile else st.columns(2)
+            c_a1 = col_adv_list[0]
+            c_a2 = col_adv_list[1]
+            c_a3 = col_adv_list[2] if not is_mobile else col_adv_list[0]
+            c_a4 = col_adv_list[3] if not is_mobile else col_adv_list[1]
+
+            corsi_val = r.get("corsi_pct")
+            corsi_rel_val = r.get("corsi_rel")
+            oz_val = r.get("oz_start_pct")
+            with c_a1:
+                st.markdown("**🏒 Possession & Territoire**")
+                if pd.notna(corsi_val):
+                    st.metric("Corsi CF%", f"{corsi_val * 100:.1f} %", f"{corsi_rel_val * 100:+.1f} % rel." if pd.notna(corsi_rel_val) else None)
+                if pd.notna(oz_val):
+                    st.metric("Mises en jeu zone off.", f"{oz_val * 100:.1f} %")
+
+            shots_val = r.get("shots_per_gp")
+            g60_val = r.get("g_per60_5v5")
+            a1_val = r.get("a1_per_gp")
+            with c_a2:
+                st.markdown("**🎯 Volume & Menace**")
+                if pd.notna(shots_val):
+                    st.metric("Tirs / match", f"{shots_val:.1f}")
+                if pd.notna(g60_val):
+                    st.metric("Buts 5c5 / 60m", f"{g60_val:.2f}")
+                if pd.notna(a1_val):
+                    st.metric("Passes primaires / m", f"{a1_val:.2f}")
+
+            sh_val = r.get("sh_pct_5v5")
+            on_sh_val = r.get("on_ice_sh_pct")
+            ipp_val = r.get("ipp5v5_per60")
+            with c_a3:
+                st.markdown("**⚡ Efficacité 5c5**")
+                if pd.notna(sh_val):
+                    st.metric("Tir individuel 5c5", f"{sh_val * 100:.1f} %")
+                if pd.notna(on_sh_val):
+                    st.metric("Tir d'équipe sur glace", f"{on_sh_val * 100:.1f} %")
+                if pd.notna(ipp_val):
+                    st.metric("Points 5c5 / 60m", f"{ipp_val:.2f}")
+
+            pdo_val = r.get("pdo")
+            take_val = r.get("take_per60")
+            net_pen_val = r.get("net_pen_per60")
+            with c_a4:
+                st.markdown("**🎰 Diagnostic & Chance**")
+                if pd.notna(pdo_val):
+                    pdo_delta = (pdo_val - 1.00) * 1000
+                    st.metric("PDO (indice de chance)", f"{pdo_val:.3f}", f"{pdo_delta:+.0f} pts")
+                if pd.notna(take_val):
+                    st.metric("Récupérations / 60m", f"{take_val:.1f}")
+                if pd.notna(net_pen_val):
+                    st.metric("Pénalités nettes / 60m", f"{net_pen_val:+.2f}")
+
+            # Alertes analytiques intelligentes
+            if pd.notna(pdo_val):
+                if pdo_val < 0.980 and (pd.notna(corsi_val) and corsi_val >= 0.50):
+                    st.info(
+                        f"🎯 **Candidat d'élite au rebond positif (Buy-Low) :** "
+                        f"Ce joueur domine la possession (**{corsi_val * 100:.1f}% Corsi**) "
+                        f"mais subit un taux de chance anormalement bas (**PDO de {pdo_val:.3f}**). "
+                        f"Une forte régression positive vers la moyenne est attendue."
+                    )
+                elif pdo_val > 1.030:
+                    st.warning(
+                        f"⚠️ **Vigilance – Production dopée par la chance (Sell-High potentiel) :** "
+                        f"Son **PDO de {pdo_val:.3f}** est nettement au-dessus de la normale. "
+                        f"Un ralentissement du rythme de production est statistiquement probable."
+                    )
 
 
 def render_tab_scarcity(players: pd.DataFrame, model: dict[str, Any], is_mobile: bool = False) -> None:

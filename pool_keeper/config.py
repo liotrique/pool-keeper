@@ -276,6 +276,36 @@ COLCFG = {
         help="🏒 Moyenne de buts marqués par match par l'équipe du joueur cette saison. Mesure le calibre offensif de l'environnement immédiat.",
         format="%.2f",
     ),
+    "Corsi CF%": st.column_config.NumberColumn(
+        "Corsi CF%",
+        help="🏒 Corsi For % (5c5) : pourcentage de tentatives de tir en faveur quand le joueur est sur la glace. >50% = l'équipe génère plus de tirs. Mesure dominante de la possession de rondelle.",
+        format="%.1f%%",
+    ),
+    "PDO": st.column_config.NumberColumn(
+        "PDO",
+        help="🎰 PDO = % de tir de l'équipe + % d'arrêts de l'équipe quand le joueur est sur la glace. ~1.000 = neutre. >1.020 = chanceux (régression probable). <0.980 = malchanceux (rebond probable).",
+        format="%.3f",
+    ),
+    "OZ Start%": st.column_config.NumberColumn(
+        "OZ Start%",
+        help="🎯 % de mises en jeu en zone offensive (5c5). >55% = déploiement offensif favorisé par l'entraîneur. <45% = rôle défensif. Impact direct sur la production.",
+        format="%.1f%%",
+    ),
+    "Tirs/m": st.column_config.NumberColumn(
+        "Tirs/m",
+        help="🎯 Nombre de tirs au but par match. Proxy du volume offensif et de l'agressivité au tir. Les marqueurs d'élite tirent 3.5+/match.",
+        format="%.1f",
+    ),
+    "Sh% 5c5": st.column_config.NumberColumn(
+        "Sh% 5c5",
+        help="🎯 Pourcentage de tirs convertis en buts à forces égales (5c5). Moyenne LNH ~9%. >12% = possiblement chanceux ou tireur d'élite. <7% = malchanceux ou mauvais finisseur.",
+        format="%.1f%%",
+    ),
+    "On-Ice Sh%": st.column_config.NumberColumn(
+        "On-Ice Sh%",
+        help="🏒 % de tir de l'équipe quand le joueur est sur la glace à 5c5. Mesure la qualité de la finition collective. Compare à Sh% individuel pour détecter la chance.",
+        format="%.1f%%",
+    ),
 }
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -352,7 +382,7 @@ Le **Score (0-100)** est une moyenne pondérée (poids modifiables dans la barre
 X 1. **Contrat** (échéance, risque de changer d'équipe/rôle) – non fourni par l'API officielle.
 2. **Composition des trios et de l'avantage numérique** (PP1 vs PP2) – le TOI PP en est un bon proxy.
 ✓ 3. **Qualité de l'équipe et contexte de buts** : Prise en compte du volume offensif de l'équipe, de la progression de saison en saison, et balisage par le plafond offensif du club.
-4. **Taux de tirs/xG** et **PDO/chance** (Natural Stat Trick, MoneyPuck) pour détecter la régression.
+✓ 4. **Statistiques avancées NHL Edge** intégrées : Corsi CF% (possession de rondelle), PDO (détection de chance et régression à la moyenne), zone starts (déploiement offensif), volume de tirs/match, efficacité 5c5, passes primaires et récupérations de rondelle.
 X 5. **Statut de blessure**, calendrier, matchs en retard.
 ✓ 6. **Jeunes/recrues (Statistiques pré-LNH & 2 premières saisons)** : Intégration des ligues juniors, AHL, NCAA et d'Europe traduites en équivalents LNH via facteurs de conversion et calendriers officiels. Neutralisation du biais de fragilité artificielle et de temps de jeu abrité (laissés de côté, rappels du club-école) lors des deux premières saisons dans la LNH.
 7. **Structure du pool** : 12 protégés sur ~24 postes → il faut maximiser le surplus *par rapport au choix de repêchage* ; le Tier B-C représente cette frontière.

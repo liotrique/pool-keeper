@@ -77,6 +77,18 @@ def to_view(df: pd.DataFrame) -> pd.DataFrame:
         "Durab.": df["c_durab"].round(0),
         "Upside": df["c_upside"].round(0),
     }
+    if "corsi_pct" in df:
+        res["Corsi CF%"] = (df["corsi_pct"] * 100).round(1)
+    if "pdo" in df:
+        res["PDO"] = df["pdo"].round(3)
+    if "oz_start_pct" in df:
+        res["OZ Start%"] = (df["oz_start_pct"] * 100).round(1)
+    if "shots_per_gp" in df:
+        res["Tirs/m"] = df["shots_per_gp"].round(1)
+    if "sh_pct_5v5" in df:
+        res["Sh% 5c5"] = (df["sh_pct_5v5"] * 100).round(1)
+    if "on_ice_sh_pct" in df:
+        res["On-Ice Sh%"] = (df["on_ice_sh_pct"] * 100).round(1)
     if "pre_nhl" in df:
         res["Pré-NHL"] = df["pre_nhl"].fillna("")
     return pd.DataFrame(res, index=df.index)

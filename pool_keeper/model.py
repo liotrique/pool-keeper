@@ -71,6 +71,19 @@ BOOST_FEATURES = [
     "Rythme passes/match",
     "Tendance TOI (an t vs t-1)",
     "Tendance points (an t vs t-1)",
+    "Tirs par match",
+    "Possession (Corsi CF%)",
+    "Déploiement off. (OZ Start%)",
+    "% tir 5c5 (Sh%)",
+    "PDO (chance)",
+    "Production 5c5/60 min",
+    "Buts/60 min 5c5",
+    "Passes primaires/match",
+    "TOI forces égales",
+    "Récupérations/60",
+    "Pénalités nettes/60",
+    "Signal de chance au tir",
+    "Ratio production primaire",
 ]
 AV_PRIOR = {"F": (0.88, 0.75), "D": (0.88, 0.75), "G": (0.45, 0.60)}   # (valeur a priori, poids en saisons)
 AV_CAP = {"F": 0.97, "D": 0.97, "G": 0.82}
@@ -142,7 +155,14 @@ def prepare_long(data: dict[str, Any]) -> pd.DataFrame:
         gl["grp"] = "G"
         frames.append(gl)
     ps = pd.concat(frames, ignore_index=True)
-    for c in ["gs", "w", "toi", "pp_toi"]:
+    for c in ["gs", "w", "toi", "pp_toi",
+              "corsi_pct", "corsi_rel", "fenwick_pct", "oz_start_pct",
+              "sh_pct_5v5", "on_ice_sh_pct", "pdo",
+              "shots_per_gp", "a1_per_gp", "a2_per_gp",
+              "g_per60_5v5", "a1_per60_5v5", "a2_per60_5v5", "ipp5v5_per60",
+              "toi_5v5", "hits_per60", "blocks_per60",
+              "give_per60", "take_per60", "total_shot_att", "first_goals",
+              "net_pen_per60"]:
         if c not in ps:
             ps[c] = np.nan
     ps = _add_age(ps)
@@ -176,6 +196,22 @@ class Panel:
     g: np.ndarray | None = None
     a: np.ndarray | None = None
     lg_gpg: np.ndarray | None = None
+    corsi_pct: np.ndarray | None = None
+    corsi_rel: np.ndarray | None = None
+    oz_start_pct: np.ndarray | None = None
+    sh_pct_5v5: np.ndarray | None = None
+    on_ice_sh_pct: np.ndarray | None = None
+    pdo: np.ndarray | None = None
+    shots_per_gp: np.ndarray | None = None
+    a1_per_gp: np.ndarray | None = None
+    ipp5v5_per60: np.ndarray | None = None
+    g_per60_5v5: np.ndarray | None = None
+    toi_5v5: np.ndarray | None = None
+    hits_per60: np.ndarray | None = None
+    take_per60: np.ndarray | None = None
+    total_shot_att: np.ndarray | None = None
+    first_goals: np.ndarray | None = None
+    net_pen_per60: np.ndarray | None = None
 
 
 def make_panel(ps: pd.DataFrame) -> Panel:
@@ -214,6 +250,14 @@ def make_panel(ps: pd.DataFrame) -> Panel:
         team=last["team"].to_numpy(), seasons=seasons, yrs=yrs, slen=slen, gp=gp, pool=pool, rate=rate,
         toi=mat("toi"), pp=mat("pp_toi"), gs=mat("gs"), w=mat("w"), age=age,
         g=g_mat, a=a_mat, lg_gpg=lg_gpg,
+        corsi_pct=mat("corsi_pct"), corsi_rel=mat("corsi_rel"),
+        oz_start_pct=mat("oz_start_pct"), sh_pct_5v5=mat("sh_pct_5v5"),
+        on_ice_sh_pct=mat("on_ice_sh_pct"), pdo=mat("pdo"),
+        shots_per_gp=mat("shots_per_gp"), a1_per_gp=mat("a1_per_gp"),
+        ipp5v5_per60=mat("ipp5v5_per60"), g_per60_5v5=mat("g_per60_5v5"),
+        toi_5v5=mat("toi_5v5"), hits_per60=mat("hits_per60"),
+        take_per60=mat("take_per60"), total_shot_att=mat("total_shot_att"),
+        first_goals=mat("first_goals"), net_pen_per60=mat("net_pen_per60"),
     )
 
 
@@ -313,7 +357,8 @@ def _extract_skater_features(
     """
     Extrait les variables explicatives pour le modèle de Gradient Boosting (GBDT).
     Capture temps de glace (global et PP), âge, cadence de production de base,
-    buts/passes par match et dynamiques de progression d'une saison à l'autre.
+    buts/passes par match, dynamiques de progression, ainsi que les métriques avancées
+    (volume de tirs, possession Corsi, zone starts, PDO/chance, efficacité 5c5).
     """
     toi = np.clip(panel.toi[p_idx, s] if toi_override is None else toi_override, 8.0, 28.0)
     pp = np.nan_to_num(panel.pp[p_idx, s] if pp_override is None else pp_override)
@@ -330,7 +375,30 @@ def _extract_skater_features(
     else:
         t_toi = np.zeros(len(p_idx))
         t_rate = np.zeros(len(p_idx))
-    return np.column_stack([toi, pp, age, gp, rate, g_rate, a_rate, t_toi, t_rate])
+
+    # Métriques avancées / NHL Edge (avec valeurs par défaut neutres si non disponibles)
+    shots_pg = np.nan_to_num(panel.shots_per_gp[p_idx, s]) if panel.shots_per_gp is not None else np.zeros(len(p_idx))
+    corsi = np.nan_to_num(panel.corsi_pct[p_idx, s], nan=0.50) if panel.corsi_pct is not None else np.full(len(p_idx), 0.50)
+    oz_start = np.nan_to_num(panel.oz_start_pct[p_idx, s], nan=0.50) if panel.oz_start_pct is not None else np.full(len(p_idx), 0.50)
+    sh_pct = np.nan_to_num(panel.sh_pct_5v5[p_idx, s], nan=0.09) if panel.sh_pct_5v5 is not None else np.full(len(p_idx), 0.09)
+    on_ice_sh = np.nan_to_num(panel.on_ice_sh_pct[p_idx, s], nan=0.09) if panel.on_ice_sh_pct is not None else np.full(len(p_idx), 0.09)
+    pdo_val = np.nan_to_num(panel.pdo[p_idx, s], nan=1.0) if panel.pdo is not None else np.full(len(p_idx), 1.0)
+    ipp_per60 = np.nan_to_num(panel.ipp5v5_per60[p_idx, s]) if panel.ipp5v5_per60 is not None else np.zeros(len(p_idx))
+    g_per60 = np.nan_to_num(panel.g_per60_5v5[p_idx, s]) if panel.g_per60_5v5 is not None else np.zeros(len(p_idx))
+    a1_pg = np.nan_to_num(panel.a1_per_gp[p_idx, s]) if panel.a1_per_gp is not None else np.zeros(len(p_idx))
+    toi5v5 = np.nan_to_num(panel.toi_5v5[p_idx, s]) if panel.toi_5v5 is not None else np.zeros(len(p_idx))
+    take = np.nan_to_num(panel.take_per60[p_idx, s]) if panel.take_per60 is not None else np.zeros(len(p_idx))
+    net_pen = np.nan_to_num(panel.net_pen_per60[p_idx, s]) if panel.net_pen_per60 is not None else np.zeros(len(p_idx))
+
+    # Signaux dérivés : chance de tir (écart Sh% vs On-Ice Sh%) et ratio de passes primaires
+    sh_luck = sh_pct - on_ice_sh
+    a1_ratio = np.where(rate > 0, a1_pg / np.maximum(rate, 0.01), 0.5)
+
+    return np.column_stack([
+        toi, pp, age, gp, rate, g_rate, a_rate, t_toi, t_rate,
+        shots_pg, corsi, oz_start, sh_pct, pdo_val, ipp_per60,
+        g_per60, a1_pg, toi5v5, take, net_pen, sh_luck, a1_ratio
+    ])
 
 
 def fit_priors_panel(panel: Panel, t: int, feats: str, comp: np.ndarray) -> dict[str, dict]:
@@ -373,7 +441,7 @@ def fit_priors_panel(panel: Panel, t: int, feats: str, comp: np.ndarray) -> dict
             X_all = np.vstack(Xs)
             if _HAS_LIGHTGBM:
                 model = LGBMRegressor(
-                    n_estimators=60,
+                    n_estimators=100,
                     max_depth=3,
                     learning_rate=0.08,
                     reg_lambda=3.0,
@@ -387,7 +455,7 @@ def fit_priors_panel(panel: Panel, t: int, feats: str, comp: np.ndarray) -> dict
                 res["importances"] = dict(zip(BOOST_FEATURES, (imp / max(imp.sum(), 1e-9) * 100).round(1)))
             else:
                 hgb = HistGradientBoostingRegressor(
-                    max_iter=50,
+                    max_iter=80,
                     max_depth=3,
                     min_samples_leaf=15,
                     learning_rate=0.08,
@@ -1060,15 +1128,42 @@ def build_model(
     df["rank_pos"] = df.groupby("grp")["pts0"].rank(ascending=False, method="first").astype(int)
     df["z_pos"] = (df["pts0"] - df["grp"].map(st_mean)) / df["grp"].map(st_std).replace(0, np.nan)
 
+    # ── Données avancées / NHL Edge (saison courante) ───────────────────────────
+    df["corsi_pct"] = panel.corsi_pct[idx, t] if panel.corsi_pct is not None else np.nan
+    df["corsi_rel"] = panel.corsi_rel[idx, t] if panel.corsi_rel is not None else np.nan
+    df["pdo"] = panel.pdo[idx, t] if panel.pdo is not None else np.nan
+    df["oz_start_pct"] = panel.oz_start_pct[idx, t] if panel.oz_start_pct is not None else np.nan
+    df["shots_per_gp"] = panel.shots_per_gp[idx, t] if panel.shots_per_gp is not None else np.nan
+    df["sh_pct_5v5"] = panel.sh_pct_5v5[idx, t] if panel.sh_pct_5v5 is not None else np.nan
+    df["on_ice_sh_pct"] = panel.on_ice_sh_pct[idx, t] if panel.on_ice_sh_pct is not None else np.nan
+    df["ipp5v5_per60"] = panel.ipp5v5_per60[idx, t] if panel.ipp5v5_per60 is not None else np.nan
+    df["g_per60_5v5"] = panel.g_per60_5v5[idx, t] if panel.g_per60_5v5 is not None else np.nan
+    df["a1_per_gp"] = panel.a1_per_gp[idx, t] if panel.a1_per_gp is not None else np.nan
+    df["take_per60"] = panel.take_per60[idx, t] if panel.take_per60 is not None else np.nan
+    df["net_pen_per60"] = panel.net_pen_per60[idx, t] if panel.net_pen_per60 is not None else np.nan
+
     sk = df["grp"] != "G"
     toi_pct, pp_pct = _pct(df, "toi_w"), _pct(df, "pp_w")
     lead_pct, trend_pct = _pct(df, "tm_gap"), _pct(df, "toi_trend")
     opening = np.where(df["age_ahead"].notna(), np.clip((df["age_ahead"] - 26) / 9, 0, 1) * 100, 60.0)
-    opp_sk = 0.35 * toi_pct + 0.20 * pp_pct + 0.15 * lead_pct + 0.15 * opening + 0.15 * trend_pct
+    oz_pct = _pct(df, "oz_start_pct").fillna(50.0)
+    shot_vol_pct = _pct(df, "shots_per_gp").fillna(50.0)
+    opp_sk = (
+        0.30 * toi_pct
+        + 0.18 * pp_pct
+        + 0.12 * lead_pct
+        + 0.12 * opening
+        + 0.10 * trend_pct
+        + 0.10 * oz_pct
+        + 0.08 * shot_vol_pct
+    )
     opp_g = 0.7 * _pct(df, "gs_share") + 0.3 * _pct(df, "win_rate")
     df["c_opp"] = np.where(sk, opp_sk, opp_g)
     df["underuse"] = np.where(sk, _pct(df, "p60") - toi_pct, np.nan)
-    df["c_upside"] = _pct(df.assign(_u=df["kv_p90"] - df["kv"]), "_u")
+    # Signal de régression / chance : un PDO sous 1.000 indique un rebond attendu
+    luck_rebound = np.where(df["pdo"].notna(), (1.00 - df["pdo"]).clip(-0.06, 0.06) * 500.0, 0.0)
+    upside_base = df["kv_p90"] - df["kv"] + luck_rebound
+    df["c_upside"] = _pct(df.assign(_u=upside_base), "_u")
     df["c_durab"] = 0.5 * _pct(df, "avail") + 0.5 * _pct(df, "useful")
     df["key"] = df["name"].map(norm)
     df["actif"] = df["gp_cur"] > 0

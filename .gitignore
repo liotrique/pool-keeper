@@ -5,6 +5,8 @@ env/
 
 # Cache API LNH et calculs
 .nhl_cache/
+**/.nhl_cache/
+**/.nhl_cache/**
 **/__pycache__/
 *.py[cod]
 *$py.class
