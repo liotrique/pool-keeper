@@ -30,7 +30,7 @@ from pool_keeper.config import (
 )
 from pool_keeper.data import cache_purge_nonfinal
 from pool_keeper.trade import compare_trade
-from pool_keeper.trade_finder import find_target, suggest_offers
+from pool_keeper.trade_finder import find_target, scan_rival_targets, suggest_offers
 from pool_keeper.utils import match_names, norm, parse_names, season_label, season_shift, to_view
 
 
@@ -1143,17 +1143,25 @@ CLUB_STORAGE_PATH = os.path.join(
 )
 
 
-def save_club_to_disk(players: pd.DataFrame, club_indices: list[int], path: str = CLUB_STORAGE_PATH) -> bool:
-    """Sauvegarde la liste des joueurs du club sur le disque."""
+def save_club_to_disk(
+    players: pd.DataFrame,
+    club_indices: list[int],
+    taken_text: str | None = None,
+    path: str = CLUB_STORAGE_PATH,
+) -> bool:
+    """Sauvegarde la liste des joueurs du club et les joueurs adverses sur le disque."""
     try:
         valid_indices = [i for i in club_indices if i in players.index]
         pids = [int(players.loc[i, "pid"]) for i in valid_indices if "pid" in players.columns]
         names = [str(players.loc[i, "name"]) for i in valid_indices if "name" in players.columns]
+        if taken_text is None:
+            taken_text = st.session_state.get("taken_players_text", "")
         payload = {
-            "version": 1,
+            "version": 2,
             "updated_at": dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             "pids": pids,
             "names": names,
+            "taken_text": str(taken_text or ""),
         }
         with open(path, "w", encoding="utf-8") as f:
             json.dump(payload, f, indent=2, ensure_ascii=False)
@@ -1162,15 +1170,16 @@ def save_club_to_disk(players: pd.DataFrame, club_indices: list[int], path: str 
         return False
 
 
-def load_club_from_disk(players: pd.DataFrame, path: str = CLUB_STORAGE_PATH) -> tuple[list[int], str | None]:
-    """Charge la liste des joueurs du club depuis le disque. Retourne (indices, updated_at)."""
+def load_club_from_disk(players: pd.DataFrame, path: str = CLUB_STORAGE_PATH) -> tuple[list[int], str | None, str]:
+    """Charge la liste des joueurs du club et les joueurs adverses depuis le disque. Retourne (indices, updated_at, taken_text)."""
     if not os.path.exists(path):
-        return [], None
+        return [], None, ""
     try:
         with open(path, "r", encoding="utf-8") as f:
             data = json.load(f)
         saved_pids = set(data.get("pids", []))
         updated_at = data.get("updated_at")
+        taken_text = data.get("taken_text", "")
 
         indices: list[int] = []
         if saved_pids and "pid" in players.columns:
@@ -1184,13 +1193,13 @@ def load_club_from_disk(players: pd.DataFrame, path: str = CLUB_STORAGE_PATH) ->
                     if eid not in indices:
                         indices.append(eid)
 
-        return indices, updated_at
+        return indices, updated_at, str(taken_text or "")
     except Exception:
-        return [], None
+        return [], None, ""
 
 
 def ensure_club_loaded(players: pd.DataFrame) -> None:
-    """S'assure que le club est chargé en mémoire au démarrage (URL ou fichier disque)."""
+    """S'assure que le club et la liste des autres équipes sont chargés en mémoire au démarrage (URL ou fichier disque)."""
     if "my_club_ids" not in st.session_state:
         url_club = st.query_params.get("club")
         indices_from_url: list[int] = []
@@ -1206,17 +1215,21 @@ def ensure_club_loaded(players: pd.DataFrame) -> None:
             st.session_state["my_club_ids"] = sorted(indices_from_url)
             st.session_state["my_club_last_saved"] = "Restauré depuis l'URL"
         else:
-            saved_ids, updated_at = load_club_from_disk(players)
+            saved_ids, updated_at, taken_text = load_club_from_disk(players)
             st.session_state["my_club_ids"] = sorted(saved_ids)
             if updated_at:
                 st.session_state["my_club_last_saved"] = updated_at
+            if taken_text and "taken_players_text" not in st.session_state:
+                st.session_state["taken_players_text"] = taken_text
 
 
-def sync_club_state(players: pd.DataFrame, new_ids: list[int]) -> None:
+def sync_club_state(players: pd.DataFrame, new_ids: list[int], taken_text: str | None = None) -> None:
     """Met à jour l'état de session, enregistre sur disque et synchronise les query params d'URL."""
     valid_ids = sorted([i for i in new_ids if i in players.index])
     st.session_state["my_club_ids"] = valid_ids
-    save_club_to_disk(players, valid_ids)
+    if taken_text is not None:
+        st.session_state["taken_players_text"] = taken_text
+    save_club_to_disk(players, valid_ids, taken_text=taken_text)
     st.session_state["my_club_last_saved"] = dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     if valid_ids and "pid" in players.columns:
         pids_str = ",".join(str(int(players.loc[i, "pid"])) for i in valid_ids)
@@ -1249,11 +1262,12 @@ def render_tab_club_waivers(players: pd.DataFrame, is_mobile: bool = False) -> N
         c_save_btn, c_reset_btn = st.columns(2)
         with c_save_btn:
             if st.button("💾 Enregistrer", use_container_width=True, help="Force la sauvegarde immédiate sur le serveur."):
-                sync_club_state(players, st.session_state["my_club_ids"])
+                sync_club_state(players, st.session_state["my_club_ids"], taken_text=st.session_state.get("taken_players_text", ""))
                 st.rerun()
         with c_reset_btn:
             if st.button("🗑️ Vider le club", use_container_width=True, help="Efface la sélection et supprime la sauvegarde persistante."):
                 st.session_state["my_club_ids"] = []
+                st.session_state["taken_players_text"] = ""
                 if os.path.exists(CLUB_STORAGE_PATH):
                     try:
                         os.remove(CLUB_STORAGE_PATH)
@@ -1273,12 +1287,13 @@ def render_tab_club_waivers(players: pd.DataFrame, is_mobile: bool = False) -> N
 
         with c_save_btn:
             if st.button("💾 Enregistrer", use_container_width=True, help="Force la sauvegarde immédiate sur le serveur."):
-                sync_club_state(players, st.session_state["my_club_ids"])
+                sync_club_state(players, st.session_state["my_club_ids"], taken_text=st.session_state.get("taken_players_text", ""))
                 st.rerun()
 
         with c_reset_btn:
             if st.button("🗑️ Vider le club", use_container_width=True, help="Efface la sélection et supprime la sauvegarde persistante."):
                 st.session_state["my_club_ids"] = []
+                st.session_state["taken_players_text"] = ""
                 if os.path.exists(CLUB_STORAGE_PATH):
                     try:
                         os.remove(CLUB_STORAGE_PATH)
@@ -1295,10 +1310,11 @@ def render_tab_club_waivers(players: pd.DataFrame, is_mobile: bool = False) -> N
             st.markdown("**Télécharger une sauvegarde locale :**")
             valid_ids = [i for i in st.session_state["my_club_ids"] if i in players.index]
             export_payload = {
-                "version": 1,
+                "version": 2,
                 "exported_at": dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                 "pids": [int(players.loc[i, "pid"]) for i in valid_ids if "pid" in players.columns],
                 "names": [str(players.loc[i, "name"]) for i in valid_ids if "name" in players.columns],
+                "taken_text": str(st.session_state.get("taken_players_text", "")),
             }
             st.download_button(
                 "⬇️ Télécharger my_club.json",
@@ -1332,9 +1348,13 @@ def render_tab_club_waivers(players: pd.DataFrame, is_mobile: bool = False) -> N
                                 for eid in extra_ids:
                                     if eid not in up_indices:
                                         up_indices.append(eid)
+                        if "taken_text" in upload_data:
+                            st.session_state["taken_players_text"] = str(upload_data["taken_text"])
                         if up_indices:
                             st.session_state["_last_club_upload_sig"] = file_sig
-                            sync_club_state(players, up_indices)
+                            sync_club_state(players, up_indices, taken_text=st.session_state.get("taken_players_text", ""))
+                            st.success(f"✅ {len(up_indices)} joueurs restaurés avec succès !")
+                            st.rerun()
                             st.success(f"✅ {len(up_indices)} joueurs restaurés avec succès !")
                             st.rerun()
                     except Exception as e:
@@ -1464,11 +1484,17 @@ def render_tab_club_waivers(players: pd.DataFrame, is_mobile: bool = False) -> N
     st.divider()
     st.subheader("🎯 Cibles de ballottage")
     st.write("Trouvez les meilleurs joueurs disponibles pour bonifier votre équipe (fenêtres : 15 novembre, 15 janvier, 15 mars).")
+    taken_val = st.session_state.get("taken_players_text", "")
     taken_txt = st.text_area(
-        "Joueurs déjà repêchés ou pris par les autres DG (optionnel, un par ligne pour les exclure du ballottage)",
+        "Joueurs déjà repêchés ou pris par les autres DG (optionnel, un par ligne pour les exclure du ballottage et alimenter le détecteur d'échanges)",
+        value=taken_val,
         height=100,
         placeholder="Nathan MacKinnon\nAuston Matthews\n...",
+        key="waiver_taken_players_text_input",
     )
+    if taken_txt != taken_val:
+        st.session_state["taken_players_text"] = taken_txt
+        save_club_to_disk(players, club_ids, taken_text=taken_txt)
     used = set(club_ids)
     if taken_txt.strip():
         other_ids, _ = match_names(players, parse_names(taken_txt))
@@ -1722,6 +1748,319 @@ def _render_manual_trade_simulator(players: pd.DataFrame, is_mobile: bool = Fals
         st.info("💡 Ajoutez des joueurs dans l'Équipe A et l'Équipe B ci-dessus pour simuler et comparer la transaction.")
 
 
+def render_tab_rival_target_detector(players: pd.DataFrame, is_mobile: bool = False) -> None:
+    """Affiche le scanner automatique des cibles d'échange parmi les autres équipes."""
+    st.subheader("🤖 Détecteur de cibles (Autres équipes)")
+    st.write(
+        "Ce module scanne les joueurs déjà repêchés par les autres directeurs généraux de votre pool "
+        "et vous recommande automatiquement les cibles les plus rentables à acquérir "
+        "(**opportunités Buy-Low**, pépites à forte **valeur Keeper**, renforts immédiats **Win-Now**), "
+        "en construisant l'offre optimale à proposer depuis votre propre alignement."
+    )
+
+    ensure_club_loaded(players)
+    all_indices = players.index.tolist()
+    labels = {
+        i: f"{players.loc[i, 'name']} ({players.loc[i, 'pos']}, {players.loc[i, 'team']}) – Score: {players.loc[i, 'Score']:.1f} | Rang #{int(players.loc[i, 'Rang'])}"
+        for i in all_indices
+    }
+
+    # 1. Alignement de l'utilisateur
+    my_club_ids = st.session_state.get("my_club_ids", [])
+    if not my_club_ids:
+        st.info("💡 **Astuce** : Définissez votre club dans l'onglet **'🧢 Mon club & ballottage'** pour charger vos joueurs automatiquement.")
+
+    exp_roster_label = f"🧢 Votre club ({len(my_club_ids)} joueurs détectés)" if my_club_ids else "🧢 Sélectionner les joueurs de votre club"
+    with st.expander(exp_roster_label, expanded=not bool(my_club_ids)):
+        roster_ids = st.multiselect(
+            "Joueurs de votre équipe pouvant servir de monnaie d'échange :",
+            options=all_indices,
+            default=[i for i in my_club_ids if i in all_indices],
+            format_func=lambda i: labels.get(i, str(i)),
+            key="detector_roster_select",
+            placeholder="Sélectionnez vos joueurs...",
+        )
+
+    if not roster_ids:
+        st.warning("⚠️ Veuillez sélectionner au moins un joueur dans votre équipe pour pouvoir générer des offres d'échange.")
+        return
+
+    roster_df = players.loc[roster_ids]
+
+    # 2. Source des joueurs des autres équipes
+    st.markdown("#### 👥 Bassin des joueurs des autres équipes")
+    
+    saved_taken_text = st.session_state.get("taken_players_text", "").strip()
+    detected_other_ids: list[int] = []
+    if saved_taken_text:
+        detected_other_ids, _ = match_names(players, parse_names(saved_taken_text))
+        # Exclure nos propres joueurs
+        detected_other_ids = [i for i in detected_other_ids if i not in roster_ids]
+
+    has_saved_rivals = len(detected_other_ids) > 0
+
+    source_options = [
+        f"📋 Joueurs des autres DG ({len(detected_other_ids)} joueurs détectés)" if has_saved_rivals else "📋 Joueurs des autres DG (Saisie texte)",
+        "🌐 Scanner tout le Top 250 de la ligue (excluant mon club)",
+    ]
+    default_source_idx = 0 if has_saved_rivals else 1
+
+    source_choice = st.radio(
+        "Source des joueurs à analyser :",
+        options=source_options,
+        index=default_source_idx,
+        horizontal=True,
+        key="detector_source_choice",
+    )
+
+    if "Joueurs des autres DG" in source_choice:
+        with st.expander("📝 Voir / Modifier la liste des joueurs des autres équipes (un nom par ligne)", expanded=not has_saved_rivals):
+            new_taken = st.text_area(
+                "Collez la liste des joueurs repêchés par vos rivaux :",
+                value=saved_taken_text,
+                height=120,
+                placeholder="Nathan MacKinnon\nAuston Matthews\nConnor Bedard\nCale Makar\n...",
+                key="detector_taken_text_area",
+            )
+            if new_taken != saved_taken_text:
+                st.session_state["taken_players_text"] = new_taken
+                save_club_to_disk(players, roster_ids, taken_text=new_taken)
+                st.rerun()
+
+        if not detected_other_ids:
+            st.info(
+                "💡 **Aucun joueur adverse détecté pour l'instant.**\n\n"
+                "Collez la liste des joueurs repêchés ci-dessus, ou sélectionnez l'option "
+                "**'🌐 Scanner tout le Top 250 de la ligue'** pour explorer instantanément les meilleures cibles de la LNH !"
+            )
+            candidates_pool = pd.DataFrame()
+        else:
+            candidates_pool = players.loc[detected_other_ids]
+    else:
+        # Top 250 excluding user's roster
+        top_candidates = players.sort_values("Score", ascending=False).head(300)
+        top_candidates = top_candidates[~top_candidates.index.isin(roster_ids)]
+        candidates_pool = top_candidates.head(250)
+        st.caption(f"🔍 Analyse active sur les **{len(candidates_pool)} meilleurs joueurs de la LNH** hors de votre club.")
+
+    if candidates_pool.empty:
+        return
+
+    # 3. Paramètres & Filtres Stratégiques
+    st.markdown("#### ⚙️ Filtres & Stratégie d'acquisition")
+    if is_mobile:
+        strat_choice = st.selectbox(
+            "Stratégie recherchée :",
+            options=[
+                ("all", "🌟 Toutes les opportunités avantageuses"),
+                ("buy_low", "🟢 Cibles Buy-Low (Sous-évaluées / Rebond imminent)"),
+                ("keeper", "🌱 Pépites & Noyau Futur (Gain Keeper / Moins de 25 ans)"),
+                ("win_now", "🏆 Renfort Immédiat Win-Now (Gain ROS maximal)"),
+                ("defense", "🛡️ Défenseurs d'impact"),
+                ("goalie", "🥅 Gardiens partants"),
+                ("sell_high_give", "🔴 Vente au sommet (Monnayer nos Sell-High)"),
+            ],
+            format_func=lambda x: x[1],
+            key="detector_strat_select",
+        )[0]
+        pos_filter = st.selectbox("Position :", ["ALL", "F", "D", "G"], index=0, key="detector_pos_filter")
+        sort_by = st.selectbox(
+            "Trier par :",
+            options=[
+                ("attractiveness", "🌟 Attractivité globale (Recommandé)"),
+                ("delta_score", "📈 Gain de Score (Δ Score)"),
+                ("delta_kv", "🌱 Gain Keeper (Δ Keeper)"),
+                ("delta_ros", "🏆 Gain Immédiat (Δ ROS)"),
+                ("score_target", "🎯 Score de la cible"),
+            ],
+            format_func=lambda x: x[1],
+            key="detector_sort_by",
+        )[0]
+        max_give = st.selectbox("Format d'échange :", options=[1, 2], format_func=lambda x: "1 pour 1 seulement" if x == 1 else "1 ou 2 pour 1", index=1, key="detector_max_give")
+        ratio_range = st.slider("Ratio Score offert vs cible (%) :", 70, 130, (88, 112), format="%d%%", key="detector_ratio_slider")
+        top_n = 15
+    else:
+        c_strat, c_pos, c_sort = st.columns([2.5, 1.2, 2.3])
+        with c_strat:
+            strat_choice = st.selectbox(
+                "Stratégie recherchée :",
+                options=[
+                    ("all", "🌟 Toutes les opportunités avantageuses"),
+                    ("buy_low", "🟢 Cibles Buy-Low (Sous-évaluées / Rebond imminent)"),
+                    ("keeper", "🌱 Pépites & Noyau Futur (Gain Keeper / Moins de 25 ans)"),
+                    ("win_now", "🏆 Renfort Immédiat Win-Now (Gain ROS maximal)"),
+                    ("defense", "🛡️ Défenseurs d'impact"),
+                    ("goalie", "🥅 Gardiens partants"),
+                    ("sell_high_give", "🔴 Vente au sommet (Monnayer nos Sell-High)"),
+                ],
+                format_func=lambda x: x[1],
+                key="detector_strat_select",
+            )[0]
+        with c_pos:
+            pos_filter = st.selectbox("Position :", ["ALL", "F", "D", "G"], index=0, key="detector_pos_filter")
+        with c_sort:
+            sort_by = st.selectbox(
+                "Trier par :",
+                options=[
+                    ("attractiveness", "🌟 Attractivité globale (Recommandé)"),
+                    ("delta_score", "📈 Gain de Score (Δ Score)"),
+                    ("delta_kv", "🌱 Gain Keeper (Δ Keeper)"),
+                    ("delta_ros", "🏆 Gain Immédiat (Δ ROS)"),
+                    ("score_target", "🎯 Score de la cible"),
+                ],
+                format_func=lambda x: x[1],
+                key="detector_sort_by",
+            )[0]
+
+        c_give, c_ratio, c_n = st.columns([1.5, 2.5, 1.2])
+        with c_give:
+            max_give = st.selectbox("Format d'échange :", options=[1, 2], format_func=lambda x: "1 pour 1 seulement" if x == 1 else "Jusqu'à 2 pour 1", index=1, key="detector_max_give")
+        with c_ratio:
+            ratio_range = st.slider("Fourchette Score offert vs cible (%) :", 70, 130, (88, 112), format="%d%%", key="detector_ratio_slider", help="88% à 112% garantit des offres réalistes et acceptables pour l'adversaire tout en préservant votre gain.")
+        with c_n:
+            top_n = st.selectbox("Max cibles :", [10, 15, 20, 30], index=1, key="detector_top_n")
+
+    # Joueurs intouchables
+    protected_ids = st.multiselect(
+        "🔒 Joueurs intouchables de votre club (ne jamais offrir) :",
+        options=roster_ids,
+        default=[],
+        format_func=lambda i: players.loc[i, "name"],
+        key="detector_protected_ids",
+        placeholder="Sélectionnez vos joueurs intouchables...",
+    )
+
+    # 4. Exécution du scanner
+    min_ratio = float(ratio_range[0]) / 100.0
+    max_ratio = float(ratio_range[1]) / 100.0
+    n_display = top_n if not is_mobile else 15
+
+    targets_df = scan_rival_targets(
+        candidates_pool=candidates_pool,
+        roster=roster_df,
+        name_col="name",
+        max_give=int(max_give),
+        min_ratio=min_ratio,
+        max_ratio=max_ratio,
+        protected=protected_ids,
+        target_category=strat_choice,
+        pos_filter=pos_filter,
+        sort_by=sort_by,
+        top_n=int(n_display),
+    )
+
+    st.divider()
+    st.markdown("#### 🎯 Cibles recommandées & Offres optimales")
+
+    if targets_df.empty:
+        st.warning(
+            "Aucune cible avantageuse trouvée avec ces critères stricts.\n\n"
+            "💡 **Conseils pour trouver des offres** :\n"
+            "- Élargissez la fourchette de ratio (ex: 85% à 118%).\n"
+            "- Autorisez 'Jusqu'à 2 pour 1' si vous étiez en 1 pour 1.\n"
+            "- Vérifiez que vos meilleurs joueurs ne sont pas tous cochés comme 'intouchables'.\n"
+            "- Si vous utilisez la liste des autres DG, assurez-vous qu'elle contient assez de joueurs."
+        )
+        return
+
+    st.success(f"🔥 **{len(targets_df)} cible(s) de premier choix identifiée(s)** dans les autres équipes !")
+
+    # Aperçu du Top 3 sous forme de cartes d'opportunité
+    if not is_mobile and len(targets_df) >= 3:
+        st.markdown("##### 🌟 Coups de cœur du modèle (Top 3 des opportunités)")
+        top3_cols = st.columns(3)
+        for idx_c, col in enumerate(top3_cols):
+            row_c = targets_df.iloc[idx_c]
+            with col:
+                st.info(
+                    f"**#{idx_c+1} · {row_c['Cible']}** ({row_c['Pos']}, {row_c['Éq.']})\n\n"
+                    f"**Verdict :** `{row_c['Verdict Edge']}` · **Score :** `{row_c['Score Cible']:.1f}`\n\n"
+                    f"**Offre suggérée :**\n👉 `{row_c['Tu offres']}`\n\n"
+                    f"**Gains :** Δ Score : **{row_c['Δ Score']:+.1f}** | Δ Keeper : **{row_c['Δ Keeper']:+.1f}** | Δ ROS : **{row_c['Δ ROS']:+.1f}**\n\n"
+                    f"*{row_c['Pourquoi cibler']}*",
+                    icon="🎯",
+                )
+
+    # Tableau interactif complet
+    display_cols = [
+        "Cible",
+        "Éq.",
+        "Pos",
+        "Âge",
+        "Verdict Edge",
+        "Score Cible",
+        "Tu offres",
+        "Nb",
+        "Score offert",
+        "Ratio",
+        "Δ Score",
+        "Δ Keeper",
+        "Δ ROS",
+        "Δ VORP",
+        "Attractivité",
+        "Profil",
+        "Pourquoi cibler",
+    ]
+    show_table = targets_df[[c for c in display_cols if c in targets_df.columns]]
+
+    cfg_dict = {
+        "Cible": st.column_config.TextColumn("Joueur visé", width="medium"),
+        "Éq.": st.column_config.TextColumn("Éq.", width="small"),
+        "Pos": st.column_config.TextColumn("Pos", width="small"),
+        "Âge": st.column_config.NumberColumn("Âge", format="%.1f ans", width="small"),
+        "Verdict Edge": st.column_config.TextColumn("Verdict Edge", width="medium"),
+        "Score Cible": st.column_config.NumberColumn("Score", format="%.1f"),
+        "Tu offres": st.column_config.TextColumn("Package à donner", width="large"),
+        "Nb": st.column_config.NumberColumn("Qté", format="%d", width="small"),
+        "Score offert": st.column_config.NumberColumn("Score don", format="%.1f"),
+        "Ratio": st.column_config.NumberColumn("Ratio", format="%.2f", help="Score offert / Score cible"),
+        "Δ Score": st.column_config.NumberColumn("Δ Score", format="%+.1f"),
+        "Δ Keeper": st.column_config.NumberColumn("Δ Keeper", format="%+.1f"),
+        "Δ ROS": st.column_config.NumberColumn("Δ ROS", format="%+.1f"),
+        "Δ VORP": st.column_config.NumberColumn("Δ VORP", format="%+.1f"),
+        "Attractivité": st.column_config.NumberColumn("Indice", format="%.1f", help="Score d'attractivité composite de la transaction"),
+        "Profil": st.column_config.TextColumn("Type d'impact", width="medium"),
+        "Pourquoi cibler": st.column_config.TextColumn("Analyse & Argumentaire", width="large"),
+    }
+
+    st.dataframe(
+        show_table,
+        column_config=cfg_dict,
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    # 5. Passerelle d'action vers le simulateur ou vers le chercheur d'offres précis
+    st.markdown("#### 🔬 Passer à l'action sur une cible")
+    c_act_sel, c_act_sim, c_act_find = st.columns([3, 1.5, 1.5] if not is_mobile else [1, 1, 1])
+
+    with c_act_sel:
+        target_sel_idx = st.selectbox(
+            "Choisir la cible à explorer :",
+            options=range(len(targets_df)),
+            format_func=lambda idx: (
+                f"{targets_df.loc[idx, 'Cible']} ({targets_df.loc[idx, 'Pos']}, {targets_df.loc[idx, 'Éq.']}) "
+                f"← Donner : {targets_df.loc[idx, 'Tu offres']} "
+                f"(Δ Score: {targets_df.loc[idx, 'Δ Score']:+.1f} | Δ Keeper: {targets_df.loc[idx, 'Δ Keeper']:+.1f} | Δ ROS: {targets_df.loc[idx, 'Δ ROS']:+.1f})"
+            ),
+            key="detector_action_target_idx",
+        )
+
+    chosen_row = targets_df.iloc[target_sel_idx]
+    with c_act_sim:
+        if st.button("🚀 Charger dans le simulateur", use_container_width=True, type="primary"):
+            st.session_state["trade_a"] = list(chosen_row["_give_ids"])
+            st.session_state["trade_b"] = [chosen_row["_target_id"]]
+            st.session_state["trade_version"] = st.session_state.get("trade_version", 0) + 1
+            st.success(f"✅ Transaction chargée ({chosen_row['Tu offres']} ⇄ {chosen_row['Cible']}) ! Consultez le simulateur manuel pour voir tous les graphiques.")
+            st.rerun()
+
+    with c_act_find:
+        if st.button("🔍 Voir toutes les offres alternatives", use_container_width=True):
+            st.session_state["finder_target_preload"] = chosen_row["_target_id"]
+            st.info(f"💡 Cible sélectionnée ({chosen_row['Cible']}). Basculez sur l'onglet '🎯 Offres pour une cible précise' pour voir les autres combinaisons possibles.")
+
+
 def render_tab_trade_finder(players: pd.DataFrame, is_mobile: bool = False) -> None:
     """Affiche le générateur automatique d'offres d'échange (Trade Finder)."""
     st.subheader("🎯 Chercheur d'offres (Trade Finder)")
@@ -1765,10 +2104,14 @@ def render_tab_trade_finder(players: pd.DataFrame, is_mobile: bool = False) -> N
         st.warning("Aucun joueur externe disponible à cibler.")
         return
 
+    preload = st.session_state.pop("finder_target_preload", None)
+    if preload is not None and preload in target_options:
+        st.session_state["finder_target_select"] = [preload]
+
     target_ids = st.multiselect(
         "Joueur(s) convoité(s) de l'autre équipe :",
         options=target_options,
-        default=[],
+        default=[preload] if (preload is not None and preload in target_options and "finder_target_select" not in st.session_state) else [],
         format_func=lambda i: labels.get(i, str(i)),
         key="finder_target_select",
         placeholder="Tapez le nom d'un joueur convoité (ex: McDavid, Makar, Hughes)...",
@@ -1936,15 +2279,18 @@ def render_tab_trade_finder(players: pd.DataFrame, is_mobile: bool = False) -> N
 
 
 def render_tab_trade_simulator(players: pd.DataFrame, is_mobile: bool = False) -> None:
-    """Affiche le simulateur interactif d'échanges et le chercheur d'offres (Trade Finder)."""
-    sub_tab_sim, sub_tab_finder = st.tabs([
-        "🔄 Simulateur manuel",
-        "🎯 Chercheur d'offres (Trade Finder)",
+    """Affiche le simulateur interactif d'échanges, le détecteur de cibles et le chercheur d'offres."""
+    sub_tab_detector, sub_tab_finder, sub_tab_sim = st.tabs([
+        "🤖 Détecteur de cibles (Autres équipes)",
+        "🎯 Offres pour une cible précise",
+        "🔄 Simulateur d'échange manuel",
     ])
-    with sub_tab_sim:
-        _render_manual_trade_simulator(players, is_mobile=is_mobile)
+    with sub_tab_detector:
+        render_tab_rival_target_detector(players, is_mobile=is_mobile)
     with sub_tab_finder:
         render_tab_trade_finder(players, is_mobile=is_mobile)
+    with sub_tab_sim:
+        _render_manual_trade_simulator(players, is_mobile=is_mobile)
 
 
 def render_tab_methodology(model: dict[str, Any] | None = None) -> None:
