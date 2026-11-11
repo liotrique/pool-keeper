@@ -1201,4 +1201,6 @@ def apply_weights(df: pd.DataFrame, w: dict[str, float], n_teams: int, risk_aver
     bins = [0, 2 * n, 6 * n, 12 * n, 24 * n, 10 ** 9]
     labels = ["S – Franchise", "A – Noyau", "B – Protégeable", "C – Repêchable", "D – Ballottage"]
     df["Tier"] = pd.cut(df["Rang"], bins=bins, labels=labels)
+    from .utils import get_edge_signal
+    df["Verdict Edge"] = df.apply(get_edge_signal, axis=1)
     return df

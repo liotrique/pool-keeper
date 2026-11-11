@@ -374,6 +374,21 @@ def render_tab_ranking(players: pd.DataFrame, cur: int, is_mobile: bool = False)
         "Âge (Plus jeunes en premier)": ("age_cur", True),
     }
 
+    if "shots_per_gp" in players.columns:
+        sort_options["Tirs / match (Volume offensif)"] = ("shots_per_gp", False)
+    if "corsi_pct" in players.columns:
+        sort_options["Possession (Corsi CF%)"] = ("corsi_pct", False)
+    if "pdo" in players.columns:
+        sort_options["Candidats Buy-Low (PDO bas)"] = ("pdo", True)
+        sort_options["Candidats Sell-High (PDO élevé)"] = ("pdo", False)
+
+    if "Verdict Edge" not in players.columns:
+        from .utils import get_edge_signal
+        players["Verdict Edge"] = players.apply(get_edge_signal, axis=1)
+
+    edge_signal_order = ["🟢 Buy-Low", "🔴 Sell-High", "🔥 Moteur Élite", "🛡️ Rôle Défensif", "📈 Malchanceux", "📉 Chanceux", "⚖️ Équilibré"]
+    edge_options = [s for s in edge_signal_order if s in players["Verdict Edge"].values]
+
     a_min, a_max = float(players["age_cur"].min()), float(players["age_cur"].max())
 
     if is_mobile:
@@ -392,13 +407,14 @@ def render_tab_ranking(players: pd.DataFrame, cur: int, is_mobile: bool = False)
         )
         sort_choice = st.selectbox("Trier par :", list(sort_options.keys()), index=0)
 
-        with st.expander("🔍 Filtres supplémentaires (Position, Équipe, Tier, Âge...)", expanded=False):
+        with st.expander("🔍 Filtres supplémentaires (Position, Équipe, Tier, Verdict Edge, Âge...)", expanded=False):
             col_m1, col_m2 = st.columns(2)
             with col_m1:
                 pos_sel = st.multiselect("Position", ["C", "L", "R", "D", "G"])
-            with col_m2:
                 tier_sel = st.multiselect("Tier", sorted(players["Tier"].astype(str).unique()))
-            team_sel = st.multiselect("Équipe", sorted(players["team"].dropna().unique()))
+            with col_m2:
+                team_sel = st.multiselect("Équipe", sorted(players["team"].dropna().unique()))
+                edge_sel = st.multiselect("Verdict Edge", edge_options)
             age_rng = st.slider(
                 "Âge",
                 float(int(a_min)),
@@ -408,10 +424,15 @@ def render_tab_ranking(players: pd.DataFrame, cur: int, is_mobile: bool = False)
             only_active = st.checkbox("Seulement ceux qui ont joué cette saison", value=False)
     else:
         # ── Disposition classique sur grand écran (Desktop) ──────────────────
-        c1, c2, c3 = st.columns([2, 3, 2.5])
+        c1, c2, c3, c4 = st.columns([1.5, 2.3, 2.2, 2.0])
         pos_sel = c1.multiselect("Position", ["C", "L", "R", "D", "G"])
         team_sel = c2.multiselect("Équipe", sorted(players["team"].dropna().unique()))
         tier_sel = c3.multiselect("Tier", sorted(players["Tier"].astype(str).unique()))
+        edge_sel = c4.multiselect(
+            "Verdict Edge",
+            edge_options,
+            help="Filtrez par diagnostic analytique avancé (ex: 🟢 Buy-Low, 🔴 Sell-High, 🔥 Moteur Élite...)",
+        )
 
         cp1, cp2 = st.columns([3.5, 2.5])
         player_sel = cp1.multiselect(
@@ -459,6 +480,8 @@ def render_tab_ranking(players: pd.DataFrame, cur: int, is_mobile: bool = False)
         f = f[f["team"].isin(team_sel)]
     if tier_sel:
         f = f[f["Tier"].astype(str).isin(tier_sel)]
+    if edge_sel:
+        f = f[f["Verdict Edge"].isin(edge_sel)]
     if search:
         search_terms = [
             norm(term.strip())
@@ -493,22 +516,25 @@ def render_tab_ranking(players: pd.DataFrame, cur: int, is_mobile: bool = False)
     # ── Presets de colonnes & Choix du mode d'affichage ───────────────────────
     col_presets = {
         "📱 Essentiel (Mobile)": [
-            "Rang", "Joueur", "Pos", "Éq.", "Score", "Tier", "Valeur keeper", "Proj. saison", "Peak"
+            "Rang", "Joueur", "Verdict Edge", "Pos", "Éq.", "Score", "Tier", "Valeur keeper", "Proj. saison", "Peak"
+        ],
+        "🎯 Analytique & Edge (Corsi, PDO, Tirs)": [
+            "Rang", "Joueur", "Verdict Edge", "Pos", "Éq.", "Score", "Corsi CF%", "PDO", "OZ Start%", "Tirs/m", "Sh% 5c5", "Rythme 82m", "Valeur keeper"
         ],
         "⚡ Offensif (Points & Rythme)": [
-            "Rang", "Joueur", "Pos", "Éq.", "Score", "Rythme 82m", "Proj. saison", "Proj. restant", "Pts pool", "GP"
+            "Rang", "Joueur", "Verdict Edge", "Pos", "Éq.", "Score", "Rythme 82m", "Proj. saison", "Proj. restant", "Pts pool", "GP"
         ],
         "🔮 Keeper (Long terme)": [
-            "Rang", "Joueur", "Pos", "Éq.", "Score", "Âge", "Valeur keeper", "Peak", "Âge peak", "Années utiles"
+            "Rang", "Joueur", "Verdict Edge", "Pos", "Éq.", "Score", "Âge", "Valeur keeper", "Peak", "Âge peak", "Années utiles"
         ],
-        "💻 Complet (Toutes les 26 colonnes)": None,
+        "💻 Complet (Toutes les colonnes)": None,
     }
 
     col_p1, col_p2 = st.columns([2.5, 1.5] if not is_mobile else [2, 1])
     preset_choice = col_p1.selectbox(
         "Colonnes du tableau :",
         list(col_presets.keys()),
-        index=0 if is_mobile else 3,
+        index=0 if is_mobile else 4,
         key="ranking_col_preset",
     )
     view_format = col_p2.radio(
@@ -533,6 +559,8 @@ def render_tab_ranking(players: pd.DataFrame, cur: int, is_mobile: bool = False)
         st.caption(f"Affichage de **{len(top_f)}** cartes joueur(s) sur **{len(f)}** trouvés :")
         for _, r in top_f.iterrows():
             pace_val = r.get("pace82", r["rate0"] * 82)
+            edge_val = r.get("Verdict Edge", "")
+            edge_badge_html = f'<span class="player-badge" style="background:rgba(255,255,255,0.08); font-weight:600; border:1px solid rgba(255,255,255,0.15);">{edge_val}</span>' if edge_val else ""
             card_html = f"""
             <div class="player-mobile-card">
               <div class="player-mobile-card-header">
@@ -541,6 +569,7 @@ def render_tab_ranking(players: pd.DataFrame, cur: int, is_mobile: bool = False)
                   <span class="player-mobile-name">{r['name']}</span>
                 </div>
                 <div class="player-mobile-badges">
+                  {edge_badge_html}
                   <span class="player-badge">{r['pos']} · {r['team']} · {r['age_cur']:.0f} ans</span>
                   <span class="player-badge player-badge-score">Score {r['Score']:.1f}</span>
                 </div>
@@ -1429,7 +1458,7 @@ def render_tab_club_waivers(players: pd.DataFrame, is_mobile: bool = False) -> N
     pool_free = players.drop(index=list(used)) if used else players
     wv = pool_free.sort_values("ros", ascending=False).head(30)
     st.dataframe(
-        to_view(wv)[["Joueur", "Pos", "Éq.", "Âge", "Pts pool", "Proj. restant", "Pts/60", "TOI", "Opport.", "Score"]],
+        to_view(wv)[["Joueur", "Verdict Edge", "Pos", "Éq.", "Âge", "Pts pool", "Proj. restant", "Pts/60", "TOI", "Opport.", "Score"]],
         hide_index=True,
         use_container_width=True,
         column_config=COLCFG,

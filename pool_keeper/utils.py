@@ -92,7 +92,7 @@ def to_view(df: pd.DataFrame) -> pd.DataFrame:
         "Joueur": df["name"],
         "Score": df["Score"].round(1),
         "Tier": df["Tier"].astype(str),
-        "Verdict Edge": df.apply(get_edge_signal, axis=1),
+        "Verdict Edge": df["Verdict Edge"] if "Verdict Edge" in df.columns else df.apply(get_edge_signal, axis=1),
         "Pos": df["pos"],
         "Rang pos": df["rank_pos"],
         "Éq.": df["team"],
