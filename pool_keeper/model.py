@@ -1163,8 +1163,11 @@ def build_model(
 
     # ── Bonus de capital de repêchage (Draft Capital Bias) ────────────────────
     # Plus un jeune joueur a été repêché haut, plus la franchise lui offre une laisse longue
-    # et une patience organisationnelle accrue (top trios, PP). Ce biais est maximal
-    # à 18-20 ans et s'estompe progressivement pour disparaître à 24 ans.
+    # et une patience organisationnelle accrue (top trios, PP).
+    # Décroissance différenciée par position selon la courbe de maturation LNH :
+    # - Attaquants (F) : maturation plus rapide, s'estompe à 23.5 ans (pleine jusqu'à 20 ans)
+    # - Défenseurs (D) : apprentissage plus long (200-300 matchs), patience étendue jusqu'à 25.5 ans (pleine jusqu'à 21.5 ans)
+    # - Gardiens (G)   : développement le plus tardif en LNH, s'estompe à 26.5 ans (pleine jusqu'à 22.5 ans)
     pick_val = pd.to_numeric(df["draft_overall"], errors="coerce")
     is_drafted = pick_val.notna() & (pick_val > 0)
     draft_score = np.where(
@@ -1172,8 +1175,9 @@ def build_model(
         np.clip(100.0 * (1.0 - (np.log2(np.clip(pick_val, 1.0, 224.0)) / np.log2(224.0))), 0.0, 100.0),
         0.0,
     )
-    # Décroissance avec l'âge : 100% à <=20 ans, puis baisse linéaire jusqu'à 0% à 24 ans
-    age_weight = np.clip((24.0 - df["age_cur"]) / 4.0, 0.0, 1.0)
+    end_age = np.select([df["grp"] == "D", df["grp"] == "G"], [25.5, 26.5], default=23.5)
+    span = np.select([df["grp"] == "D", df["grp"] == "G"], [4.0, 4.0], default=3.5)
+    age_weight = np.clip((end_age - df["age_cur"]) / span, 0.0, 1.0)
     draft_bonus = draft_score * age_weight
     df["draft_score"] = draft_score.round(1)
     df["draft_bonus"] = draft_bonus.round(1)

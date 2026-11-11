@@ -779,10 +779,12 @@ def render_tab_player(players: pd.DataFrame, model: dict[str, Any], cur: int, is
         d_yr = f" en {int(r['draft_year'])}" if pd.notna(r.get("draft_year")) and r["draft_year"] > 1900 else ""
         d_rnd = f" (Ronde {int(r['draft_round'])})" if pd.notna(r.get("draft_round")) and r["draft_round"] > 0 else ""
         bonus_val = r.get("draft_bonus", 0.0)
-        if r["age_cur"] < 24 and pd.notna(bonus_val) and bonus_val > 0:
+        cutoff_age = 25.5 if r.get("grp") == "D" else (26.5 if r.get("grp") == "G" else 23.5)
+        if r["age_cur"] < cutoff_age and pd.notna(bonus_val) and bonus_val > 0:
+            pos_label = "défenseur (maturation progressive 25.5 ans)" if r.get("grp") == "D" else ("gardien (maturation 26.5 ans)" if r.get("grp") == "G" else "attaquant (maturation 23.5 ans)")
             st.caption(
                 f"🎯 **Capital de repêchage :** Choix #{d_ovr} au total{d_yr}{d_rnd} · "
-                f"Patience organisationnelle active (bonus d'opportunité : **+{bonus_val:.0f} pts** sur 100)"
+                f"Patience organisationnelle active pour {pos_label} (bonus d'opportunité : **+{bonus_val:.0f} pts** sur 100)"
             )
         else:
             st.caption(f"🎯 **Repêchage LNH :** Choix #{d_ovr} au total{d_yr}{d_rnd}")
