@@ -1182,19 +1182,37 @@ def build_model(
 
 def apply_weights(df: pd.DataFrame, w: dict[str, float], n_teams: int, risk_aversion: float = 0.0) -> pd.DataFrame:
     """
-    Score (0-100) = % de la valeur annuelle espérée du meilleur joueur.
-
-    valeur annuelle = [w_keeper × (kv − λ·σ_kv) / Σ actualisation + w_current × VORP saison] / (w_keeper + w_current)
+    Score (0-100) = synthèse pondérée et normalisée des 5 piliers stratégiques :
+      - w['keeper'] (défaut 45%) : Valeur keeper future actualisée (rythme, trajectoire et âge)
+      - w['current'] (défaut 20%) : Valeur de la saison courante (VORP au-dessus du remplacement)
+      - w['opp'] (défaut 15%)     : Opportunité / déploiement (TOI, PP, OZ Start%, tirs/m, club)
+      - w['durab'] (défaut 10%)   : Durabilité et disponibilité (historique de blessures, années utiles)
+      - w['upside'] (défaut 10%)  : Plafond offensif (P90) + potentiel de rebond statistique (PDO bas)
     """
     df = df.copy()
-    wk, wc = float(w.get("keeper", 45)), float(w.get("current", 20))
-    tot = (wk + wc) or 1.0
+    wk = float(w.get("keeper", 45))
+    wc = float(w.get("current", 20))
+    wo = float(w.get("opp", 15))
+    wd = float(w.get("durab", 10))
+    wu = float(w.get("upside", 10))
+    tot = (wk + wc + wo + wd + wu) or 1.0
+
     kv_adj = (df["kv"] - risk_aversion * df["kv_sd"]).clip(lower=0)
-    raw = (wk * kv_adj / df["disc_sum"] + wc * df["vorp0"]) / tot
-    df["ev_annuel"] = raw
-    df["Score"] = 100.0 * raw / max(float(raw.max()), 1e-9)
-    df["c_keeper"] = 100.0 * df["kv"] / max(float(df["kv"].max()), 1e-9)
-    df["c_current"] = 100.0 * df["vorp0"] / max(float(df["vorp0"].max()), 1e-9)
+    kv_ann = kv_adj / df["disc_sum"]
+    df["ev_annuel"] = kv_ann
+
+    # Normalisation 0-100 de chaque pilier
+    c_k = 100.0 * kv_ann / max(float(kv_ann.max()), 1e-9)
+    c_c = 100.0 * df["vorp0"].clip(lower=0) / max(float(df["vorp0"].max()), 1e-9)
+    c_o = df["c_opp"].fillna(50.0) if "c_opp" in df.columns else pd.Series(50.0, index=df.index)
+    c_d = df["c_durab"].fillna(50.0) if "c_durab" in df.columns else pd.Series(50.0, index=df.index)
+    c_u = df["c_upside"].fillna(50.0) if "c_upside" in df.columns else pd.Series(50.0, index=df.index)
+
+    df["c_keeper"] = c_k
+    df["c_current"] = c_c
+
+    score_raw = (wk * c_k + wc * c_c + wo * c_o + wd * c_d + wu * c_u) / tot
+    df["Score"] = 100.0 * score_raw / max(float(score_raw.max()), 1e-9)
     df = df.sort_values("Score", ascending=False).reset_index(drop=True)
     df["Rang"] = np.arange(1, len(df) + 1)
     n = n_teams
