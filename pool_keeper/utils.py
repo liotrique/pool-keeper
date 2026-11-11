@@ -47,6 +47,44 @@ def match_names(df: pd.DataFrame, names: list[str]) -> tuple[list, list[str]]:
     return found, missing
 
 
+def get_edge_signal(row: pd.Series) -> str:
+    """Interprète automatiquement le profil analytique d'un joueur en verdict d'action clair."""
+    if row.get("grp") == "G" or row.get("pos") == "G":
+        return "Gardien"
+    pdo = row.get("pdo")
+    corsi = row.get("corsi_pct")
+    shots = row.get("shots_per_gp")
+    sh = row.get("sh_pct_5v5")
+    oz = row.get("oz_start_pct")
+
+    if pd.isna(pdo) and pd.isna(corsi):
+        return "—"
+
+    # 1. Buy-Low : PDO bas avec possession positive ou bon volume de tirs
+    if pd.notna(pdo) and pdo < 0.982 and ((pd.notna(corsi) and corsi >= 0.50) or (pd.notna(shots) and shots >= 2.2)):
+        return "🟢 Buy-Low"
+
+    # 2. Sell-High : PDO gonflé avec Sh% anormalement élevé
+    if pd.notna(pdo) and pdo > 1.030 and (pd.notna(sh) and sh >= 0.15):
+        return "🔴 Sell-High"
+
+    # 3. Élite / Moteur : Corsi dominant et gros volume de tirs
+    if (pd.notna(corsi) and corsi >= 0.56) and (pd.notna(shots) and shots >= 2.8):
+        return "🔥 Moteur Élite"
+
+    # 4. Rôle Défensif / Missions lourdes
+    if (pd.notna(corsi) and corsi < 0.46) and (pd.notna(oz) and oz < 0.45):
+        return "🛡️ Rôle Défensif"
+
+    if pd.notna(pdo) and pdo < 0.975:
+        return "📈 Malchanceux"
+
+    if pd.notna(pdo) and pdo > 1.035:
+        return "📉 Chanceux"
+
+    return "⚖️ Équilibré"
+
+
 def to_view(df: pd.DataFrame) -> pd.DataFrame:
     """Formate le DataFrame des joueurs pour l'affichage utilisateur en mettant la valeur clé en évidence."""
     res = {
@@ -54,6 +92,7 @@ def to_view(df: pd.DataFrame) -> pd.DataFrame:
         "Joueur": df["name"],
         "Score": df["Score"].round(1),
         "Tier": df["Tier"].astype(str),
+        "Verdict Edge": df.apply(get_edge_signal, axis=1),
         "Pos": df["pos"],
         "Rang pos": df["rank_pos"],
         "Éq.": df["team"],

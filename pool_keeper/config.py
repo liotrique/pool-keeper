@@ -154,6 +154,10 @@ COLCFG = {
         "Tier",
         help="🏷️ Catégorie de statut dans le pool :\n• S : Joueurs de franchise intouchables\n• A : Noyau d'élite\n• B : Joueurs protégeables (zone des 12 protégés)\n• C : Joueurs de repêchage régulier\n• D : Joueurs de ballottage / profondeur.",
     ),
+    "Verdict Edge": st.column_config.TextColumn(
+        "Verdict Edge",
+        help="⚡ Interprétation directe des métriques avancées NHL Edge :\n• 🟢 Buy-Low : Domine la possession ou les tirs mais malchanceux (PDO bas). À acquérir d'urgence avant l'explosion !\n• 🔴 Sell-High : Production dopée par la chance. À échanger au sommet.\n• 🔥 Moteur Élite : Domine la possession et le volume de tirs.\n• 🛡️ Rôle Défensif : Confiné aux missions ingrates.\n• ⚖️ Équilibré : Production conforme à son calibre.",
+    ),
     "Joueur": st.column_config.TextColumn(
         "Joueur",
         help="👤 Nom officiel du joueur de la LNH.",
