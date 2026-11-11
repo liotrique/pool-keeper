@@ -131,18 +131,21 @@ def _to_minutes(s: pd.Series) -> pd.Series:
 
 
 def _bios(kind: str, season: int) -> pd.DataFrame:
-    """Récupère la biographie (date de naissance, équipe actuelle) des joueurs."""
+    """Récupère la biographie (date de naissance, équipe actuelle, repêchage) des joueurs."""
     try:
         b = fetch_report(kind, "bios", season)
     except Exception:
-        return pd.DataFrame(columns=["pid", "birth", "cur_team"])
+        return pd.DataFrame(columns=["pid", "birth", "cur_team", "draft_overall", "draft_round", "draft_year"])
     if b.empty:
-        return pd.DataFrame(columns=["pid", "birth", "cur_team"])
+        return pd.DataFrame(columns=["pid", "birth", "cur_team", "draft_overall", "draft_round", "draft_year"])
     b = b.drop_duplicates("playerId")
     return pd.DataFrame({
         "pid": b["playerId"],
         "birth": b["birthDate"] if "birthDate" in b else None,
         "cur_team": b["currentTeamAbbrev"] if "currentTeamAbbrev" in b else None,
+        "draft_overall": pd.to_numeric(b["draftOverall"], errors="coerce") if "draftOverall" in b else np.nan,
+        "draft_round": pd.to_numeric(b["draftRound"], errors="coerce") if "draftRound" in b else np.nan,
+        "draft_year": pd.to_numeric(b["draftYear"], errors="coerce") if "draftYear" in b else np.nan,
     })
 
 
@@ -324,7 +327,8 @@ def fetch_goalies(season: int) -> pd.DataFrame:
     df = df.merge(_bios("goalie", season), on="pid", how="left")
     df["team"] = df["cur_team"].fillna(df["team"])
     df["season"] = season
-    return df[["season", "pid", "name", "pos", "team", "gp", "gs", "w", "sv", "ga", "birth"]]
+    cols = ["season", "pid", "name", "pos", "team", "gp", "gs", "w", "sv", "ga", "birth", "draft_overall", "draft_round", "draft_year"]
+    return df[[c for c in cols if c in df.columns]]
 
 
 def fetch_season(season: int, cur: int) -> dict[str, pd.DataFrame]:
@@ -332,7 +336,7 @@ def fetch_season(season: int, cur: int) -> dict[str, pd.DataFrame]:
     key = f"season_{season}"
     final = season < cur
     c = cache_get(key, ttl=None if final else 3600)
-    if c is not None and isinstance(c, dict) and "sk" in c and "corsi_pct" in c["sk"].columns:
+    if c is not None and isinstance(c, dict) and "sk" in c and "corsi_pct" in c["sk"].columns and "draft_overall" in c["sk"].columns:
         return c
     try:
         obj = {"sk": fetch_skaters(season), "gl": fetch_goalies(season)}

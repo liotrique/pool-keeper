@@ -130,5 +130,16 @@ def to_view(df: pd.DataFrame) -> pd.DataFrame:
         res["On-Ice Sh%"] = (df["on_ice_sh_pct"] * 100).round(1)
     if "pre_nhl" in df:
         res["Pré-NHL"] = df["pre_nhl"].fillna("")
+    if "draft_overall" in df:
+        def _fmt_draft(r):
+            ovr = r.get("draft_overall")
+            yr = r.get("draft_year")
+            if pd.notna(ovr) and float(ovr) > 0:
+                s = f"#{int(ovr)}"
+                if pd.notna(yr) and float(yr) > 1900:
+                    s += f" ({int(yr)})"
+                return s
+            return "UDFA"
+        res["Repêchage"] = df.apply(_fmt_draft, axis=1)
     return pd.DataFrame(res, index=df.index)
 

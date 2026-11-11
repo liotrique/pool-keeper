@@ -525,7 +525,7 @@ def render_tab_ranking(players: pd.DataFrame, cur: int, is_mobile: bool = False)
             "Rang", "Joueur", "Verdict Edge", "Pos", "Éq.", "Score", "Rythme 82m", "Proj. saison", "Proj. restant", "Pts pool", "GP"
         ],
         "🔮 Keeper (Long terme)": [
-            "Rang", "Joueur", "Verdict Edge", "Pos", "Éq.", "Score", "Âge", "Valeur keeper", "Peak", "Âge peak", "Années utiles"
+            "Rang", "Joueur", "Verdict Edge", "Pos", "Éq.", "Score", "Âge", "Repêchage", "Valeur keeper", "Peak", "Âge peak", "Années utiles"
         ],
         "💻 Complet (Toutes les colonnes)": None,
     }
@@ -772,6 +772,22 @@ def render_tab_player(players: pd.DataFrame, model: dict[str, Any], cur: int, is
             f"🏒 **Parcours pré-LNH :** {r['pre_nhl']} · Taux traduit en LNH : **{r['pre_rate']:.2f}** pts/match "
             f"(équivalence de **{r['pre_gp_eq']:.1f}** matchs LNH prise en compte dans la projection)."
         )
+
+    draft_ovr = r.get("draft_overall")
+    if pd.notna(draft_ovr) and float(draft_ovr) > 0:
+        d_ovr = int(draft_ovr)
+        d_yr = f" en {int(r['draft_year'])}" if pd.notna(r.get("draft_year")) and r["draft_year"] > 1900 else ""
+        d_rnd = f" (Ronde {int(r['draft_round'])})" if pd.notna(r.get("draft_round")) and r["draft_round"] > 0 else ""
+        bonus_val = r.get("draft_bonus", 0.0)
+        if r["age_cur"] < 24 and pd.notna(bonus_val) and bonus_val > 0:
+            st.caption(
+                f"🎯 **Capital de repêchage :** Choix #{d_ovr} au total{d_yr}{d_rnd} · "
+                f"Patience organisationnelle active (bonus d'opportunité : **+{bonus_val:.0f} pts** sur 100)"
+            )
+        else:
+            st.caption(f"🎯 **Repêchage LNH :** Choix #{d_ovr} au total{d_yr}{d_rnd}")
+    elif r.get("grp") != "G" and pd.notna(r.get("age_cur")) and r["age_cur"] < 25:
+        st.caption("🎯 **Repêchage LNH :** Non repêché (Agent libre - UDFA)")
 
     # ── Trajectoire complète unifiée (Passé Réel + Saison Courante + Projections Futures) ──
     first_nhl_season = h_all["season"].min() if not h_all.empty else cur

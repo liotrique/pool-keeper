@@ -1142,6 +1142,42 @@ def build_model(
     df["take_per60"] = panel.take_per60[idx, t] if panel.take_per60 is not None else np.nan
     df["net_pen_per60"] = panel.net_pen_per60[idx, t] if panel.net_pen_per60 is not None else np.nan
 
+    # ── Données de repêchage (Draft Capital) ──────────────────────────────────
+    if "draft_overall" in ps.columns:
+        draft_ovr_map = ps.dropna(subset=["draft_overall"]).groupby("pid")["draft_overall"].last()
+        df["draft_overall"] = df["pid"].map(draft_ovr_map)
+    else:
+        df["draft_overall"] = np.nan
+
+    if "draft_round" in ps.columns:
+        draft_rnd_map = ps.dropna(subset=["draft_round"]).groupby("pid")["draft_round"].last()
+        df["draft_round"] = df["pid"].map(draft_rnd_map)
+    else:
+        df["draft_round"] = np.nan
+
+    if "draft_year" in ps.columns:
+        draft_yr_map = ps.dropna(subset=["draft_year"]).groupby("pid")["draft_year"].last()
+        df["draft_year"] = df["pid"].map(draft_yr_map)
+    else:
+        df["draft_year"] = np.nan
+
+    # ── Bonus de capital de repêchage (Draft Capital Bias) ────────────────────
+    # Plus un jeune joueur a été repêché haut, plus la franchise lui offre une laisse longue
+    # et une patience organisationnelle accrue (top trios, PP). Ce biais est maximal
+    # à 18-20 ans et s'estompe progressivement pour disparaître à 24 ans.
+    pick_val = pd.to_numeric(df["draft_overall"], errors="coerce")
+    is_drafted = pick_val.notna() & (pick_val > 0)
+    draft_score = np.where(
+        is_drafted,
+        np.clip(100.0 * (1.0 - (np.log2(np.clip(pick_val, 1.0, 224.0)) / np.log2(224.0))), 0.0, 100.0),
+        0.0,
+    )
+    # Décroissance avec l'âge : 100% à <=20 ans, puis baisse linéaire jusqu'à 0% à 24 ans
+    age_weight = np.clip((24.0 - df["age_cur"]) / 4.0, 0.0, 1.0)
+    draft_bonus = draft_score * age_weight
+    df["draft_score"] = draft_score.round(1)
+    df["draft_bonus"] = draft_bonus.round(1)
+
     sk = df["grp"] != "G"
     toi_pct, pp_pct = _pct(df, "toi_w"), _pct(df, "pp_w")
     lead_pct, trend_pct = _pct(df, "tm_gap"), _pct(df, "toi_trend")
@@ -1149,15 +1185,16 @@ def build_model(
     oz_pct = _pct(df, "oz_start_pct").fillna(50.0)
     shot_vol_pct = _pct(df, "shots_per_gp").fillna(50.0)
     opp_sk = (
-        0.30 * toi_pct
-        + 0.18 * pp_pct
-        + 0.12 * lead_pct
-        + 0.12 * opening
-        + 0.10 * trend_pct
+        0.26 * toi_pct
+        + 0.16 * pp_pct
+        + 0.10 * lead_pct
+        + 0.10 * opening
+        + 0.08 * trend_pct
         + 0.10 * oz_pct
         + 0.08 * shot_vol_pct
+        + 0.12 * draft_bonus
     )
-    opp_g = 0.7 * _pct(df, "gs_share") + 0.3 * _pct(df, "win_rate")
+    opp_g = 0.60 * _pct(df, "gs_share") + 0.25 * _pct(df, "win_rate") + 0.15 * draft_bonus
     df["c_opp"] = np.where(sk, opp_sk, opp_g)
     df["underuse"] = np.where(sk, _pct(df, "p60") - toi_pct, np.nan)
     # Signal de régression / chance : un PDO sous 1.000 indique un rebond attendu

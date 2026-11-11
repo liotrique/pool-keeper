@@ -275,6 +275,10 @@ COLCFG = {
         "Pré-NHL",
         help="🏒 Ligue pré-NHL principale et matchs joués. Production traduite en équivalent NHL via des facteurs de traduction par ligue pour bonifier la projection des jeunes joueurs.",
     ),
+    "Repêchage": st.column_config.TextColumn(
+        "Repêchage",
+        help="🎯 Rang de sélection officiel au repêchage LNH (#1 au total, année). Les hauts choix bénéficient d'un capital d'opportunité et d'une patience organisationnelle accrue jusqu'à 24 ans.",
+    ),
     "Off. Éq.": st.column_config.NumberColumn(
         "Off. Éq.",
         help="🏒 Moyenne de buts marqués par match par l'équipe du joueur cette saison. Mesure le calibre offensif de l'environnement immédiat.",
