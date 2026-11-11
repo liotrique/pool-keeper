@@ -27,7 +27,7 @@ RULES = dict(
     D_GOAL=2.0,
     D_ASSIST=1.0,
     G_WIN=1.0,
-    G_SAVE=0.1,
+    G_SAVE=0.14,
     G_GA=-1.0,
 )
 
