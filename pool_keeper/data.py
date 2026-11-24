@@ -36,6 +36,8 @@ from pool_keeper.utils import season_shift
 
 _session = requests.Session()
 _session.headers.update({"User-Agent": "pool-keeper-app/1.0"})
+_REPORT_PAGE_SIZE = 100
+_SEASON_CACHE_VERSION = 2
 
 
 def http_get(url: str, params: dict | None = None, retries: int = 3, timeout: int = 30) -> Any:
@@ -111,16 +113,34 @@ def current_season_id() -> int:
 
 
 def fetch_report(kind: str, report: str, season: int, game_type: int = 2) -> pd.DataFrame:
-    """Récupère un rapport spécifique de l'API de statistiques LNH."""
+    """Récupère toutes les pages d'un rapport de l'API de statistiques LNH."""
     params = {
         "isAggregate": "false",
         "isGame": "false",
-        "start": 0,
-        "limit": -1,
+        "limit": _REPORT_PAGE_SIZE,
         "cayenneExp": f"seasonId={season} and gameTypeId={game_type}",
     }
-    data = http_get(f"{STATS}/{kind}/{report}", params)
-    return pd.DataFrame(data.get("data", []))
+    rows = []
+    start = 0
+    total = None
+    while total is None or start < total:
+        params["start"] = start
+        response = http_get(f"{STATS}/{kind}/{report}", params)
+        page = response.get("data", [])
+        if not page:
+            if total is not None and start < total:
+                raise RuntimeError(
+                    f"Rapport {kind}/{report} incomplet pour {season} : "
+                    f"{start} lignes reçues sur {total}."
+                )
+            break
+        rows.extend(page)
+        start += len(page)
+        if response.get("total") is not None:
+            total = int(response["total"])
+        elif len(page) < _REPORT_PAGE_SIZE:
+            break
+    return pd.DataFrame(rows)
 
 
 def _to_minutes(s: pd.Series) -> pd.Series:
@@ -334,7 +354,7 @@ def fetch_goalies(season: int) -> pd.DataFrame:
 
 def fetch_season(season: int, cur: int) -> dict[str, pd.DataFrame]:
     """Récupère les patineurs et gardiens d'une saison avec mise en cache."""
-    key = f"season_{season}"
+    key = f"season_v{_SEASON_CACHE_VERSION}_{season}"
     final = season < cur
     c = cache_get(key, ttl=None if final else 3600)
     if c is not None and isinstance(c, dict) and "sk" in c and "corsi_pct" in c["sk"].columns and "draft_overall" in c["sk"].columns:

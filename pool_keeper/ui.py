@@ -273,7 +273,8 @@ def render_sidebar() -> tuple[int, bool, int, dict[str, int], int, float, float,
         st.rerun()
     sb.caption(
         "Les saisons terminées sont gardées en cache disque ; "
-        "le rafraîchissement ne retélécharge que la saison en cours."
+        "le rafraîchissement ne retélécharge que la saison en cours. "
+        "Après une mise à jour des données, l'historique peut être rechargé une fois."
     )
 
     sb.header("Données")
